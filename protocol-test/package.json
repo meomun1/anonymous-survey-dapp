@@ -1,0 +1,19 @@
+{
+  "name": "protocol-test",
+  "version": "1.0.0",
+  "description": "Simple implementation of Blind RSA protocol",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test-workflow": "npm run build && node dist/workflow-verification.js"
+  },
+  "dependencies": {
+    "@cloudflare/blindrsa-ts": "^0.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

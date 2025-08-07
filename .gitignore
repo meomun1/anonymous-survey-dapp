@@ -1,0 +1,183 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# ===== DEPENDENCIES =====
+node_modules/
+/.pnp
+.pnp.js
+
+# ===== TESTING =====
+/coverage
+*.lcov
+
+# ===== PRODUCTION BUILDS =====
+/build
+/dist
+/.next
+/out
+
+# ===== ENVIRONMENT & SECURITY =====
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.example
+
+# Security files - CRITICAL: Never commit these!
+env.txt
+test-password.js
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_rsa.pub
+*.priv
+
+# ===== LOGS =====
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+logs/
+
+# ===== RUNTIME DATA =====
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# ===== COVERAGE DIRECTORY =====
+lib-cov
+
+# ===== NYANPLOT REPORT =====
+coverage/
+
+# ===== GRUNT INTERMEDIATE STORAGE =====
+.grunt
+
+# ===== BOWER DEPENDENCY DIRECTORY =====
+bower_components
+
+# ===== NODE-WAF CONFIGURATION =====
+.lock-wscript
+
+# ===== COMPILED BINARY ADDONS =====
+build/Release
+
+# ===== DEPENDENCY DIRECTORIES =====
+jspm_packages/
+
+# ===== OPTIONAL NPM CACHE DIRECTORY =====
+.npm
+
+# ===== OPTIONAL ESLINT CACHE =====
+.eslintcache
+
+# ===== OPTIONAL REPL HISTORY =====
+.node_repl_history
+
+# ===== OUTPUT OF 'NPM PACK' =====
+*.tgz
+
+# ===== YARN INTEGRITY FILE =====
+.yarn-integrity
+
+# ===== DOTENV ENVIRONMENT VARIABLES FILE =====
+.env
+
+# ===== NEXT.JS =====
+.next/
+out/
+
+# ===== NUXT.JS =====
+.nuxt
+dist
+
+# ===== GATSBY FILES =====
+.cache/
+public
+
+# ===== VUE PRESS BUILD OUTPUT =====
+.vuepress/dist
+
+# ===== SERVERLESS DIRECTORIES =====
+.serverless/
+
+# ===== FUSEBOX CACHE =====
+.fusebox/
+
+# ===== DYNAMODB LOCAL FILES =====
+.dynamodb/
+
+# ===== TERNJS PORT FILE =====
+.tern-port
+
+# ===== STORES VSCode VERSIONS =====
+.vscode-test
+
+# ===== YARN V2 =====
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# ===== PRISMA =====
+# Generated Prisma client
+/src/generated/prisma
+prisma/migrations/
+
+# ===== SOLANA/ANCHOR =====
+target/
+**/*.rs.bk
+Cargo.lock
+
+# ===== IDE & EDITOR =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== OS GENERATED FILES =====
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ===== TEMPORARY FILES =====
+*.tmp
+*.temp
+.cache/
+
+# ===== DOCKER =====
+.dockerignore
+
+# ===== BLOCKCHAIN SPECIFIC =====
+# Anchor build artifacts
+target/
+**/*.rs.bk
+Cargo.lock
+
+# ===== CLIENT SPECIFIC =====
+# Next.js build output
+.next/
+out/
+
+# ===== SERVER SPECIFIC =====
+# Generated Prisma client
+/src/generated/prisma
+prisma/migrations/
+
+# ===== PROTOCOL TEST =====
+# Test outputs and temporary files
+*.test.js
+*.test.ts
+test-output/ 

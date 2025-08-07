@@ -1,0 +1,294 @@
+{
+  "address": "mNtgDCdiUe415LDYWgD1n8zuLiPVmgqSdbUL1zHtaLq",
+  "metadata": {
+    "name": "anonymous_survey",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "create_survey",
+      "discriminator": [
+        25,
+        36,
+        97,
+        69,
+        88,
+        88,
+        54,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "survey",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  114,
+                  118,
+                  101,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "survey_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "survey_id",
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "type": "string"
+        },
+        {
+          "name": "blind_signature_public_key",
+          "type": "bytes"
+        },
+        {
+          "name": "encryption_public_key",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "publish_results",
+      "discriminator": [
+        198,
+        64,
+        157,
+        180,
+        215,
+        21,
+        224,
+        119
+      ],
+      "accounts": [
+        {
+          "name": "survey",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "submit_response",
+      "discriminator": [
+        85,
+        190,
+        208,
+        119,
+        243,
+        52,
+        133,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "survey",
+          "writable": true
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "commitment",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "encrypted_answer",
+          "type": {
+            "array": [
+              "u8",
+              256
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Survey",
+      "discriminator": [
+        146,
+        73,
+        17,
+        4,
+        6,
+        233,
+        167,
+        141
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "SurveyAlreadyPublished",
+      "msg": "Survey is already published"
+    },
+    {
+      "code": 6001,
+      "name": "SurveyIdTooLong",
+      "msg": "Survey ID is too long"
+    },
+    {
+      "code": 6002,
+      "name": "TitleTooLong",
+      "msg": "Title is too long"
+    },
+    {
+      "code": 6003,
+      "name": "DescriptionTooLong",
+      "msg": "Description is too long"
+    },
+    {
+      "code": 6004,
+      "name": "PublicKeyTooLong",
+      "msg": "Public key is too long"
+    },
+    {
+      "code": 6005,
+      "name": "Unauthorized",
+      "msg": "Unauthorized"
+    },
+    {
+      "code": 6006,
+      "name": "SurveyFull",
+      "msg": "Survey has reached maximum response limit"
+    }
+  ],
+  "types": [
+    {
+      "name": "Survey",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "survey_id",
+            "type": "string"
+          },
+          {
+            "name": "title",
+            "type": "string"
+          },
+          {
+            "name": "description",
+            "type": "string"
+          },
+          {
+            "name": "total_responses",
+            "type": "u32"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "type": "i64"
+          },
+          {
+            "name": "is_published",
+            "type": "bool"
+          },
+          {
+            "name": "merkle_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "encrypted_answers",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  256
+                ]
+              }
+            }
+          },
+          {
+            "name": "commitments",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "blind_signature_public_key",
+            "type": "bytes"
+          },
+          {
+            "name": "encryption_public_key",
+            "type": "bytes"
+          }
+        ]
+      }
+    }
+  ]
+}
