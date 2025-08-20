@@ -203,9 +203,9 @@ echo "• Survey listing: ✓"
 echo
 echo -e "${BLUE}Next steps:${NC}"
 echo "1. Try the full test suite: npm test"
-echo "2. Open Prisma Studio: npx prisma studio"
-echo "3. Check the detailed testing guide: LOCAL_TESTING.md"
-echo "4. Test with Postman using the API documentation"
+echo "2. Check the detailed testing guide: SERVER_README.md"
+echo "3. Test with Postman using the API documentation"
+echo "4. Inspect the database with psql or your preferred SQL client (using DATABASE_URL)"
 
 echo
 echo -e "${YELLOW}Survey Created:${NC}"

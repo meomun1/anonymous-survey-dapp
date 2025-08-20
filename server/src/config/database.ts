@@ -1,5 +1,13 @@
-import { PrismaClient } from '../generated/prisma';
+import { Pool } from 'pg';
 
-const prisma = new PrismaClient();
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
 
-export default prisma; 
+export const db = {
+  query: (text: string, params?: any[]) => pool.query(text, params),
+  getClient: () => pool.connect(),
+  pool,
+};
+
+export default db;

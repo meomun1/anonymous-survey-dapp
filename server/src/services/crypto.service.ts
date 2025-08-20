@@ -1,8 +1,6 @@
-import { PrismaClient } from '../generated/prisma';
+import db from '../config/database';
 import { RSABSSA } from '@cloudflare/blindrsa-ts';
 import { webcrypto } from 'crypto';
-
-const prisma = new PrismaClient();
 
 /**
  * Service for cryptographic operations (blind signatures, encryption, Merkle trees)
@@ -18,9 +16,17 @@ export class CryptoService {
   async generateBlindSignature(surveyId: string, blindedMessage: Uint8Array): Promise<Uint8Array> {
     try {
       // Get survey private keys from database
-      const surveyPrivateKey = await prisma.surveyPrivateKey.findUnique({
-        where: { surveyId }
-      });
+      const result = await db.query(
+        `SELECT blind_signature_private_key, encryption_private_key
+         FROM survey_private_keys WHERE survey_id = $1 LIMIT 1`,
+        [surveyId]
+      );
+      const surveyPrivateKey = result.rows[0]
+        ? {
+            blindSignaturePrivateKey: result.rows[0].blind_signature_private_key,
+            encryptionPrivateKey: result.rows[0].encryption_private_key,
+          }
+        : null;
 
       if (!surveyPrivateKey) {
         throw new Error('Survey private keys not found');
@@ -60,9 +66,16 @@ export class CryptoService {
   async decryptResponse(surveyId: string, encryptedAnswer: ArrayBuffer): Promise<string> {
     try {
       // Get survey private keys from database
-      const surveyPrivateKey = await prisma.surveyPrivateKey.findUnique({
-        where: { surveyId }
-      });
+      const result = await db.query(
+        `SELECT encryption_private_key
+         FROM survey_private_keys WHERE survey_id = $1 LIMIT 1`,
+        [surveyId]
+      );
+      const surveyPrivateKey = result.rows[0]
+        ? {
+            encryptionPrivateKey: result.rows[0].encryption_private_key,
+          }
+        : null;
 
       if (!surveyPrivateKey) {
         throw new Error('Survey private keys not found');
@@ -137,13 +150,17 @@ export class CryptoService {
    */
   async getSurveyPublicKeys(surveyId: string) {
     try {
-      const survey = await prisma.survey.findUnique({
-        where: { id: surveyId },
-        select: {
-          blindSignaturePublicKey: true,
-          encryptionPublicKey: true
-        }
-      });
+      const result = await db.query(
+        `SELECT blind_signature_public_key, encryption_public_key
+         FROM surveys WHERE id = $1 LIMIT 1`,
+        [surveyId]
+      );
+      const survey = result.rows[0]
+        ? {
+            blindSignaturePublicKey: result.rows[0].blind_signature_public_key,
+            encryptionPublicKey: result.rows[0].encryption_public_key,
+          }
+        : null;
 
       if (!survey) {
         throw new Error('Survey not found');

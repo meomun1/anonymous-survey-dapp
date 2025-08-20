@@ -1,4 +1,4 @@
-# Local Testing Guide for Anonymous Survey Server
+# Local Testing Guide (Raw SQL + Blockchain) for Anonymous Survey Server
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
@@ -56,7 +56,7 @@ PORT=3000
 NODE_ENV=development
 
 # Database (matches docker-compose)
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/anonymous_survey?schema=public"
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/anonymous_survey"
 
 # Redis (matches docker-compose)
 REDIS_URL="redis://localhost:6379"
@@ -106,19 +106,15 @@ docker-compose logs postgres
 docker-compose logs redis
 ```
 
-### 2. Setup Database Schema
+### 2. Setup Database Schema (Raw SQL)
 ```bash
-# Generate Prisma client
-npx prisma generate
-
-# Run database migrations
-npx prisma migrate dev
-
-# (Optional) Seed database with test data
-npx prisma db seed
+# Apply the provided SQL migrations using psql (from server/)
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250527104950_init/migration.sql
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529153118_init/migration.sql
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529181246_add_short_id/migration.sql
 ```
 
-### 3. Start Solana Local Validator (Optional)
+### 3. Start Solana Local Validator (Required for blockchain testing)
 ```bash
 # If testing blockchain functionality
 solana-test-validator --reset
@@ -130,6 +126,15 @@ solana cluster-version
 ### 4. Start the Server
 ```bash
 # Development mode (with hot reload)
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/anonymous_survey"
+export REDIS_URL="redis://localhost:6379"
+export JWT_SECRET="your-super-secret-jwt-key-change-this-in-production"
+export ADMIN_EMAIL="admin@school.edu"
+export ADMIN_PASSWORD_HASH="<bcrypt-hash>"   # generate via: npm run generate-admin-hash
+export SOLANA_RPC_URL="http://localhost:8899"
+export PROGRAM_ID="<your_deployed_program_id>"  # must match on-chain deployment
+# KEY_SOLANA is already in your .env per your note
+
 npm run dev
 
 # Or build and run production mode
@@ -560,10 +565,10 @@ docker-compose ps postgres
 # Check PostgreSQL logs
 docker-compose logs postgres
 
-# Reset database
+# Reset database (raw SQL)
 docker-compose down -v
 docker-compose up -d postgres
-npx prisma migrate reset
+# Re-apply SQL migrations with psql as shown above
 ```
 
 #### 2. Redis Connection Issues
@@ -612,14 +617,8 @@ DEBUG=express:* npm run dev
 
 #### 2. Database Debugging
 ```bash
-# Open Prisma Studio
-npx prisma studio
-
-# Generate and apply schema changes
-npx prisma db push
-
-# View current schema
-npx prisma db pull
+# Use psql or your preferred SQL client to inspect schema and data
+psql "postgresql://postgres:postgres@localhost:5432/anonymous_survey"
 ```
 
 #### 3. API Response Debugging
@@ -633,54 +632,29 @@ http GET localhost:3000/api/surveys
 
 ### Test Data Management
 
-#### Create Test Data Script
+#### Create Test Data Script (no Prisma)
 ```typescript
 // scripts/create-test-data.ts
-import { PrismaClient } from '@prisma/client';
 import { SurveyService } from '../src/services/survey.service';
 import { TokenService } from '../src/services/token.service';
 
-const prisma = new PrismaClient();
-const surveyService = new SurveyService();
-const tokenService = new TokenService();
-
 async function createTestData() {
-  try {
-    console.log('Creating test survey...');
-    const survey = await surveyService.createSurvey({
-      title: 'Test Survey for Local Development',
-      description: 'This is a test survey for local development',
-      question: 'How satisfied are you with this testing setup?'
-    });
-
-    console.log(`Survey created with ID: ${survey.id}`);
-
-    console.log('Creating test tokens...');
-    const tokens = await tokenService.generateBatchTokens(survey.id, [
-      { email: 'student1@test.edu' },
-      { email: 'student2@test.edu' },
-      { email: 'student3@test.edu' }
-    ]);
-
-    console.log(`Created ${tokens.length} tokens`);
-    tokens.forEach((token, index) => {
-      console.log(`Token ${index + 1}: ${token.token}`);
-    });
-
-    console.log('Test data created successfully!');
-  } catch (error) {
-    console.error('Error creating test data:', error);
-  } finally {
-    await prisma.$disconnect();
-  }
+  const surveyService = new SurveyService();
+  const tokenService = new TokenService();
+  const survey = await surveyService.createSurvey({
+    title: 'Test Survey for Local Development',
+    description: 'This is a test survey for local development',
+    question: 'How satisfied are you with this testing setup?'
+  });
+  const tokens = await tokenService.generateBatchTokens(survey.id, [
+    { email: 'student1@test.edu' },
+    { email: 'student2@test.edu' },
+    { email: 'student3@test.edu' }
+  ]);
+  console.log('Survey:', survey.id, 'Tokens:', tokens.length);
 }
 
-createTestData();
-```
-
-```bash
-# Run test data creation
-npx ts-node scripts/create-test-data.ts
+createTestData().catch(console.error);
 ```
 
 This comprehensive testing guide should help you thoroughly test your server locally. The setup includes database and Redis with Docker, API testing examples, automated testing with Jest, and troubleshooting tips for common issues. 

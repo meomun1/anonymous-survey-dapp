@@ -1,8 +1,5 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
-import { PrismaClient } from '../generated/prisma';
-
-const prisma = new PrismaClient();
 
 /**
  * Service for admin authentication and JWT management

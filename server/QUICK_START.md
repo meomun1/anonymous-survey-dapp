@@ -26,14 +26,24 @@ cp env.txt .env
 # Start database and Redis
 docker-compose up -d
 
-# Setup database
-npx prisma generate
-npx prisma migrate dev --name init
+# Setup database (raw SQL)
+# Apply SQL migrations using psql (matches docker-compose)
+docker-compose up -d
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250527104950_init/migration.sql
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529153118_init/migration.sql
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529181246_add_short_id/migration.sql
 
 # Generate admin password (optional - default is 'admin123')
 # npm run generate-admin-hash
 
 # Start the server
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/anonymous_survey"
+export REDIS_URL="redis://localhost:6379"
+export JWT_SECRET="devsecret"
+export ADMIN_EMAIL="admin@school.edu"
+export ADMIN_PASSWORD_HASH="<bcrypt-hash>"   # npm run generate-admin-hash
+export SOLANA_RPC_URL="http://localhost:8899"
+export PROGRAM_ID="<your_program_id>"
 npm run dev
 ```
 
@@ -80,10 +90,10 @@ chmod +x test-scripts/quick-test.sh
 
 ### Database Issues
 ```bash
-# Reset everything
+# Reset everything (raw SQL)
 docker-compose down -v
 docker-compose up -d
-npx prisma migrate reset
+# Re-apply SQL migrations with psql (see above)
 ```
 
 ### Port Conflicts
@@ -125,9 +135,6 @@ curl -X POST http://localhost:3000/api/surveys \
 
 ### Database Exploration
 ```bash
-# Open visual database browser
-npx prisma studio
-
 # Direct database access
 psql "postgresql://postgres:postgres@localhost:5432/anonymous_survey"
 ```
@@ -169,7 +176,7 @@ After running the quick test, you'll have:
 
 1. **Check Logs**: Server logs show detailed error information
 2. **Health Endpoint**: Visit `http://localhost:3000/health` for status
-3. **Prisma Studio**: Visual database interface at `npx prisma studio`
+3. **SQL Client**: Inspect DB with psql or your preferred SQL client
 4. **Docker Logs**: `docker-compose logs postgres` or `docker-compose logs redis`
 
 **Everything working?** 🎉 Your anonymous survey server is ready for development! 

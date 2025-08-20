@@ -44,13 +44,13 @@ export class ResponseController {
         });
       }
 
-      // Get survey shortId for blockchain operations
-      const { PrismaClient } = await import('../generated/prisma');
-      const prisma = new PrismaClient();
-      const survey = await prisma.survey.findUnique({
-        where: { id: surveyId },
-        select: { shortId: true }
-      });
+      // Get survey shortId for blockchain operations (raw SQL)
+      const { db } = await import('../config/database');
+      const result = await db.query(
+        'SELECT short_id FROM surveys WHERE id = $1 LIMIT 1',
+        [surveyId]
+      );
+      const survey = result.rows[0] ? { shortId: result.rows[0].short_id } : null;
 
       if (!survey) {
         return res.status(404).json({ error: 'Survey not found' });

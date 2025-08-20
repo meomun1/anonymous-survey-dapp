@@ -1,5 +1,5 @@
-import { PrismaClient } from '../generated/prisma/index';
-import type { Token } from '../generated/prisma';
+import db from '../config/database';
+import crypto from 'crypto';
 import Redis from 'ioredis';
 import { RSABSSA } from '@cloudflare/blindrsa-ts';
 import { webcrypto } from 'crypto';
@@ -8,7 +8,6 @@ import { CryptoService } from './crypto.service';
 import { createHash } from 'crypto';
 import { generateShortId, isValidShortId } from '../utils/shortId';
 
-const prismaClient = new PrismaClient();
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
 /**
@@ -57,10 +56,11 @@ export class SurveyService {
     
     while (!isUnique) {
       shortId = generateShortId(8);
-      const existing = await prismaClient.survey.findUnique({
-        where: { shortId }
-      });
-      isUnique = !existing;
+      const existing = await db.query(
+        'SELECT 1 FROM surveys WHERE short_id = $1 LIMIT 1',
+        [shortId]
+      );
+      isUnique = existing.rowCount === 0;
     }
     
     // Generate blind signature key pair
@@ -91,25 +91,52 @@ export class SurveyService {
     const encryptionPublicKeyExported = await webcrypto.subtle.exportKey('spki', encryptionPublicKey);
 
     // Create survey in database
-    const survey = await prismaClient.survey.create({
-      data: {
-        ...data,
-        shortId: shortId!,
-        blindSignaturePublicKey: Buffer.from(blindPublicKey).toString('base64'),
-        encryptionPublicKey: Buffer.from(encryptionPublicKeyExported).toString('base64'),
-        isPublished: false,
-        totalResponses: 0,
-      },
-    });
+    const surveyId = crypto.randomUUID();
+    const insertSurvey = await db.query(
+      `INSERT INTO surveys (
+         id, short_id, title, description, question,
+         blind_signature_public_key, encryption_public_key,
+         is_published, total_responses, created_at, updated_at
+       ) VALUES (
+         $1, $2, $3, $4, $5,
+         $6, $7,
+         false, 0, NOW(), NOW()
+       ) RETURNING id, short_id, title, description, question, blind_signature_public_key, encryption_public_key, is_published, total_responses, created_at, updated_at`,
+      [
+        surveyId,
+        shortId!,
+        data.title,
+        data.description ?? null,
+        data.question,
+        Buffer.from(blindPublicKey).toString('base64'),
+        Buffer.from(encryptionPublicKeyExported).toString('base64'),
+      ]
+    );
+    const survey = {
+      id: insertSurvey.rows[0].id,
+      shortId: insertSurvey.rows[0].short_id,
+      title: insertSurvey.rows[0].title,
+      description: insertSurvey.rows[0].description,
+      question: insertSurvey.rows[0].question,
+      blindSignaturePublicKey: insertSurvey.rows[0].blind_signature_public_key,
+      encryptionPublicKey: insertSurvey.rows[0].encryption_public_key,
+      isPublished: insertSurvey.rows[0].is_published,
+      totalResponses: insertSurvey.rows[0].total_responses,
+      createdAt: insertSurvey.rows[0].created_at,
+      updatedAt: insertSurvey.rows[0].updated_at,
+    } as any;
 
     // Store private keys securely
-    await prismaClient.surveyPrivateKey.create({
-      data: {
-        surveyId: survey.id,
-        blindSignaturePrivateKey: Buffer.from(blindPrivateKey).toString('base64'),
-        encryptionPrivateKey: Buffer.from(encryptionPrivateKeyExported).toString('base64'),
-      },
-    });
+    await db.query(
+      `INSERT INTO survey_private_keys (id, survey_id, blind_signature_private_key, encryption_private_key, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+      [
+        crypto.randomUUID(),
+        survey.id,
+        Buffer.from(blindPrivateKey).toString('base64'),
+        Buffer.from(encryptionPrivateKeyExported).toString('base64'),
+      ]
+    );
 
     // Clear surveys list cache
     await redis.del(SurveyService.SURVEY_LIST_CACHE_KEY);
@@ -135,10 +162,11 @@ export class SurveyService {
       console.log('🎯 Blockchain survey created, PDA:', surveyPda.toString());
 
       // Update survey with blockchain address
-      const updatedSurvey = await prismaClient.survey.update({
-        where: { id: survey.id },
-        data: { blockchainAddress: surveyPda.toString() }
-      });
+      const updateRes = await db.query(
+        `UPDATE surveys SET "blockchainAddress" = $2, updated_at = NOW() WHERE id = $1 RETURNING *`,
+        [survey.id, surveyPda.toString()]
+      );
+      const updatedSurvey = updateRes.rows[0];
 
       console.log(`✅ Survey created successfully with shortId: ${survey.shortId} and blockchain address: ${surveyPda.toString()}`);
       return updatedSurvey;
@@ -151,10 +179,18 @@ export class SurveyService {
       });
       
       // If blockchain creation fails, rollback database changes
-      await prismaClient.$transaction([
-        prismaClient.surveyPrivateKey.delete({ where: { surveyId: survey.id } }),
-        prismaClient.survey.delete({ where: { id: survey.id } })
-      ]);
+      const client = await db.getClient();
+      try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM survey_private_keys WHERE survey_id = $1', [survey.id]);
+        await client.query('DELETE FROM surveys WHERE id = $1', [survey.id]);
+        await client.query('COMMIT');
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
       throw new Error('Failed to create survey on blockchain: ' + error.message);
     }
   }
@@ -170,13 +206,27 @@ export class SurveyService {
       return JSON.parse(cachedSurvey);
     }
 
-    const survey = await prismaClient.survey.findUnique({
-      where: { id },
-      include: {
-        tokens: true,
-        responses: true,
-      },
-    });
+    const surveyRes = await db.query(
+      `SELECT * FROM surveys WHERE id = $1 LIMIT 1`,
+      [id]
+    );
+    const survey = surveyRes.rows[0];
+    if (!survey) {
+      throw new Error('Survey not found');
+    }
+    const tokensRes = await db.query(
+      `SELECT * FROM tokens WHERE survey_id = $1`,
+      [id]
+    );
+    const responsesRes = await db.query(
+      `SELECT * FROM survey_responses WHERE survey_id = $1`,
+      [id]
+    );
+    const surveyWithRelations = {
+      ...survey,
+      tokens: tokensRes.rows,
+      responses: responsesRes.rows,
+    };
 
     if (!survey) {
       throw new Error('Survey not found');
@@ -184,12 +234,12 @@ export class SurveyService {
 
     await redis.set(
       `${SurveyService.SURVEY_CACHE_PREFIX}${id}`,
-      JSON.stringify(survey),
+      JSON.stringify(surveyWithRelations),
       'EX',
       SurveyService.CACHE_TTL
     );
 
-    return survey;
+    return surveyWithRelations as any;
   }
 
   /**
@@ -202,16 +252,18 @@ export class SurveyService {
       return JSON.parse(cachedSurveys);
     }
 
-    const surveys = await prismaClient.survey.findMany({
-      include: {
-        _count: {
-          select: {
-            responses: true,
-            tokens: true,
-          },
-        },
-      },
-    });
+    const surveysRes = await db.query(`SELECT * FROM surveys ORDER BY created_at DESC`);
+    const surveys = await Promise.all(
+      surveysRes.rows.map(async (s) => {
+        const counts = await db.query(
+          `SELECT 
+             (SELECT COUNT(*) FROM survey_responses WHERE survey_id = $1) AS responses,
+             (SELECT COUNT(*) FROM tokens WHERE survey_id = $1) AS tokens`,
+          [s.id]
+        );
+        return { ...s, _count: { responses: Number(counts.rows[0].responses), tokens: Number(counts.rows[0].tokens) } };
+      })
+    );
 
     await redis.set(
       SurveyService.SURVEY_LIST_CACHE_KEY,
@@ -229,22 +281,15 @@ export class SurveyService {
    * @returns {Promise<Object>} Statistics object with participation rates
    */
   async getSurveyStats(id: string) {
-    const survey = await prismaClient.survey.findUnique({
-      where: { id },
-      include: {
-        tokens: true,
-        responses: true
-      }
-    });
+    const tokensRes = await db.query(`SELECT used, "isCompleted" FROM tokens WHERE survey_id = $1`, [id]);
+    const responsesRes = await db.query(`SELECT id FROM survey_responses WHERE survey_id = $1`, [id]);
 
-    if (!survey) {
-      throw new Error('Survey not found');
-    }
+    // If there are no tokens and no responses, still return zeros
 
-    const totalTokens = survey.tokens.length;
-    const usedTokens = survey.tokens.filter((t: Token) => t.used).length;
-    const completedTokens = survey.tokens.filter((t: Token) => t.isCompleted).length;
-    const totalResponses = survey.responses.length;
+    const totalTokens = Number(tokensRes.rowCount || 0);
+    const usedTokens = tokensRes.rows.filter((t) => t.used).length;
+    const completedTokens = tokensRes.rows.filter((t) => t.isCompleted || t.iscompleted).length;
+    const totalResponses = responsesRes.rowCount;
 
     return {
       totalTokens,
@@ -262,24 +307,27 @@ export class SurveyService {
    * @returns {Promise<{success: boolean}>} Success confirmation
    */
   async deleteSurvey(id: string) {
-    const survey = await prismaClient.survey.findUnique({
-      where: { id },
-      include: {
-        tokens: true,
-        responses: true
-      }
-    });
+    const surveyRes = await db.query(`SELECT id FROM surveys WHERE id = $1 LIMIT 1`, [id]);
+    const survey = surveyRes.rows[0];
 
     if (!survey) {
       throw new Error('Survey not found');
     }
 
-    await prismaClient.$transaction([
-      prismaClient.surveyResponse.deleteMany({ where: { surveyId: id } }),
-      prismaClient.token.deleteMany({ where: { surveyId: id } }),
-      prismaClient.surveyPrivateKey.delete({ where: { surveyId: id } }),
-      prismaClient.survey.delete({ where: { id } })
-    ]);
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM survey_responses WHERE survey_id = $1', [id]);
+      await client.query('DELETE FROM tokens WHERE survey_id = $1', [id]);
+      await client.query('DELETE FROM survey_private_keys WHERE survey_id = $1', [id]);
+      await client.query('DELETE FROM surveys WHERE id = $1', [id]);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
 
     // Invalidate caches
     await Promise.all([
@@ -311,9 +359,8 @@ export class SurveyService {
   async processResponsesFromBlockchain(surveyId: string) {
     try {
       // Get survey from database to access shortId
-      const survey = await prismaClient.survey.findUnique({
-        where: { id: surveyId }
-      });
+      const surveyRes = await db.query(`SELECT id, short_id FROM surveys WHERE id = $1 LIMIT 1`, [surveyId]);
+      const survey = surveyRes.rows[0] ? { id: surveyRes.rows[0].id, shortId: surveyRes.rows[0].short_id } : null;
 
       if (!survey) {
         throw new Error('Survey not found');
@@ -340,22 +387,23 @@ export class SurveyService {
           const commitment = new Uint8Array(blockchainSurvey!.data.commitments[index]);
           const commitmentHash = Buffer.from(commitment).toString('hex');
 
-          return await prismaClient.surveyResponse.create({
-            data: {
-              surveyId: surveyId,
-              encryptedAnswer: Buffer.from(blockchainSurvey!.data.encryptedAnswers[index]).toString('base64'),
-              decryptedAnswer: answer,
-              commitmentHash: commitmentHash
-            }
-          });
+          await db.query(
+            `INSERT INTO survey_responses (id, survey_id, encrypted_answer, decrypted_answer, commitment_hash, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+            [
+              crypto.randomUUID(),
+              surveyId,
+              Buffer.from(blockchainSurvey!.data.encryptedAnswers[index]).toString('base64'),
+              answer,
+              commitmentHash,
+            ]
+          );
+          return { decryptedAnswer: answer, commitmentHash } as any;
         })
       );
 
       // Update survey response count
-      await prismaClient.survey.update({
-        where: { id: surveyId },
-        data: { totalResponses: responses.length }
-      });
+      await db.query(`UPDATE surveys SET total_responses = $2, updated_at = NOW() WHERE id = $1`, [surveyId, responses.length]);
 
       // Invalidate caches
       await Promise.all([
@@ -379,12 +427,27 @@ export class SurveyService {
    */
   async getSurveyResults(surveyId: string) {
     try {
-      const survey = await prismaClient.survey.findUnique({
-        where: { id: surveyId },
-        include: {
-          responses: true
-        }
-      });
+      const surveyRes = await db.query(
+        `SELECT id, short_id, title, total_responses, is_published, published_at, merkle_root
+         FROM surveys WHERE id = $1 LIMIT 1`,
+        [surveyId]
+      );
+      const responsesDb = await db.query(
+        `SELECT decrypted_answer FROM survey_responses WHERE survey_id = $1`,
+        [surveyId]
+      );
+      const survey = surveyRes.rows[0]
+        ? {
+            id: surveyRes.rows[0].id,
+            shortId: surveyRes.rows[0].short_id,
+            title: surveyRes.rows[0].title,
+            totalResponses: surveyRes.rows[0].total_responses,
+            isPublished: surveyRes.rows[0].is_published,
+            publishedAt: surveyRes.rows[0].published_at,
+            merkleRoot: surveyRes.rows[0].merkle_root,
+            responses: responsesDb.rows.map((r) => ({ decryptedAnswer: r.decrypted_answer })),
+          }
+        : null;
 
       if (!survey) {
         throw new Error('Survey not found');
@@ -399,7 +462,7 @@ export class SurveyService {
         console.log('📋 Getting survey results in fallback mode');
         
         const answerCounts: { [key: string]: number } = {};
-        survey.responses.forEach(response => {
+        survey.responses.forEach((response: any) => {
           if (response.decryptedAnswer) {
             answerCounts[response.decryptedAnswer] = (answerCounts[response.decryptedAnswer] || 0) + 1;
           }
@@ -438,22 +501,23 @@ export class SurveyService {
             const commitment = blockchainSurvey!.data.commitments[index];
             const commitmentHash = Buffer.from(commitment).toString('hex');
 
-            return await prismaClient.surveyResponse.create({
-              data: {
-                surveyId: surveyId,
-                encryptedAnswer: encryptedAnswers[index].toString('base64'),
-                decryptedAnswer: answer,
-                commitmentHash: commitmentHash,
-              }
-            });
+            await db.query(
+              `INSERT INTO survey_responses (id, survey_id, encrypted_answer, decrypted_answer, commitment_hash, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+              [
+                crypto.randomUUID(),
+                surveyId,
+                encryptedAnswers[index].toString('base64'),
+                answer,
+                commitmentHash,
+              ]
+            );
+            return { decryptedAnswer: answer, commitmentHash } as any;
           })
         );
 
         // Update survey response count
-        await prismaClient.survey.update({
-          where: { id: surveyId },
-          data: { totalResponses: responses.length }
-        });
+        await db.query(`UPDATE surveys SET total_responses = $2, updated_at = NOW() WHERE id = $1`, [surveyId, responses.length]);
 
         // Calculate answer distribution
         const answerCounts: { [key: string]: number } = {};
@@ -476,9 +540,9 @@ export class SurveyService {
         console.warn('⚠️ Blockchain operation failed, falling back to database:', blockchainError);
         // Fallback to database results if blockchain fails
         const answerCounts: { [key: string]: number } = {};
-        survey.responses.forEach(response => {
-          if (response.decryptedAnswer) {
-            answerCounts[response.decryptedAnswer] = (answerCounts[response.decryptedAnswer] || 0) + 1;
+        survey.responses.forEach((response: any) => {
+          if (response.decrypted_answer) {
+            answerCounts[response.decrypted_answer] = (answerCounts[response.decrypted_answer] || 0) + 1;
           }
         });
 
@@ -505,19 +569,19 @@ export class SurveyService {
   async publishSurveyWithMerkleProof(surveyId: string) {
     try {
       // Get survey from database to access shortId
-      const survey = await prismaClient.survey.findUnique({
-        where: { id: surveyId }
-      });
+      const surveyRes2 = await db.query(`SELECT id, short_id FROM surveys WHERE id = $1 LIMIT 1`, [surveyId]);
+      const survey = surveyRes2.rows[0] ? { id: surveyRes2.rows[0].id, shortId: surveyRes2.rows[0].short_id } : null;
 
       if (!survey) {
         throw new Error('Survey not found');
       }
 
       // Get all commitments from database
-      const responses = await prismaClient.surveyResponse.findMany({
-        where: { surveyId },
-        select: { commitmentHash: true }
-      });
+      const respRes = await db.query(
+        `SELECT commitment_hash FROM survey_responses WHERE survey_id = $1`,
+        [surveyId]
+      );
+      const responses = respRes.rows.map((r: any) => ({ commitmentHash: r.commitment_hash }));
 
       if (responses.length === 0) {
         throw new Error('No responses found to publish');
@@ -533,14 +597,12 @@ export class SurveyService {
         console.log('📋 Publishing survey in fallback mode - blockchain operations skipped');
         
         // Update database only
-        const publishedSurvey = await prismaClient.survey.update({
-          where: { id: surveyId },
-          data: {
-            isPublished: true,
-            publishedAt: new Date(),
-            merkleRoot: merkleRootHex
-          }
-        });
+        const update = await db.query(
+          `UPDATE surveys SET is_published = true, published_at = NOW(), merkle_root = $2, updated_at = NOW()
+           WHERE id = $1 RETURNING id, is_published, published_at, merkle_root, total_responses`,
+          [surveyId, merkleRootHex]
+        );
+        const publishedSurvey = update.rows[0];
 
         // Invalidate caches after successful publish
         await Promise.all([
@@ -550,10 +612,10 @@ export class SurveyService {
 
         return {
           surveyId: publishedSurvey.id,
-          isPublished: publishedSurvey.isPublished,
-          publishedAt: publishedSurvey.publishedAt,
-          merkleRoot: publishedSurvey.merkleRoot,
-          totalResponses: publishedSurvey.totalResponses
+          isPublished: publishedSurvey.is_published,
+          publishedAt: publishedSurvey.published_at,
+          merkleRoot: publishedSurvey.merkle_root,
+          totalResponses: Number(publishedSurvey.total_responses || 0),
         };
       }
 
@@ -561,14 +623,12 @@ export class SurveyService {
       await this.blockchainService?.publishResults(survey.shortId);
 
       // Update database
-      const publishedSurvey = await prismaClient.survey.update({
-        where: { id: surveyId },
-        data: {
-          isPublished: true,
-          publishedAt: new Date(),
-          merkleRoot: merkleRootHex
-        }
-      });
+      const update = await db.query(
+        `UPDATE surveys SET is_published = true, published_at = NOW(), merkle_root = $2, updated_at = NOW()
+         WHERE id = $1 RETURNING id, is_published, published_at, merkle_root, total_responses`,
+        [surveyId, merkleRootHex]
+      );
+      const publishedSurvey = update.rows[0];
 
       // Invalidate caches after successful publish
       await Promise.all([
@@ -578,10 +638,10 @@ export class SurveyService {
 
       return {
         surveyId: publishedSurvey.id,
-        isPublished: publishedSurvey.isPublished,
-        publishedAt: publishedSurvey.publishedAt,
-        merkleRoot: publishedSurvey.merkleRoot,
-        totalResponses: publishedSurvey.totalResponses
+        isPublished: publishedSurvey.is_published,
+        publishedAt: publishedSurvey.published_at,
+        merkleRoot: publishedSurvey.merkle_root,
+        totalResponses: Number(publishedSurvey.total_responses || 0),
       };
     } catch (error: any) {
       throw new Error(`Failed to publish survey: ${error.message}`);

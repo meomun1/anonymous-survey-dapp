@@ -1,7 +1,6 @@
-import { PrismaClient } from '../generated/prisma';
+import db from '../config/database';
+import crypto from 'crypto';
 import { CryptoService } from './crypto.service';
-
-const prisma = new PrismaClient();
 const cryptoService = new CryptoService();
 
 /**
@@ -37,12 +36,22 @@ export class ResponseService {
    */
   async getSurveyResponses(surveyId: string) {
     try {
-      const responses = await prisma.surveyResponse.findMany({
-        where: { surveyId },
-        orderBy: { createdAt: 'desc' }
-      });
-
-      return responses;
+      const result = await db.query(
+        `SELECT id, survey_id, encrypted_answer, decrypted_answer, commitment_hash, created_at, updated_at
+         FROM survey_responses
+         WHERE survey_id = $1
+         ORDER BY created_at DESC`,
+        [surveyId]
+      );
+      return result.rows.map((row) => ({
+        id: row.id,
+        surveyId: row.survey_id,
+        encryptedAnswer: row.encrypted_answer,
+        decryptedAnswer: row.decrypted_answer,
+        commitmentHash: row.commitment_hash,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
     } catch (error: any) {
       throw new Error(`Failed to get survey responses: ${error.message}`);
     }
@@ -55,9 +64,17 @@ export class ResponseService {
    */
   async verifyResponseIntegrity(responseId: string): Promise<boolean> {
     try {
-      const response = await prisma.surveyResponse.findUnique({
-        where: { id: responseId }
-      });
+      const result = await db.query(
+        `SELECT decrypted_answer, commitment_hash
+         FROM survey_responses WHERE id = $1 LIMIT 1`,
+        [responseId]
+      );
+      const response = result.rows[0]
+        ? {
+            decryptedAnswer: result.rows[0].decrypted_answer,
+            commitmentHash: result.rows[0].commitment_hash,
+          }
+        : null;
 
       if (!response) {
         throw new Error('Response not found');
@@ -79,9 +96,23 @@ export class ResponseService {
    * @returns {Promise<Object|null>} Response object or null
    */
   async getResponseByCommitmentHash(commitmentHash: string) {
-    return await prisma.surveyResponse.findFirst({
-      where: { commitmentHash }
-    });
+    const result = await db.query(
+      `SELECT id, survey_id, encrypted_answer, decrypted_answer, commitment_hash, created_at, updated_at
+       FROM survey_responses WHERE commitment_hash = $1 LIMIT 1`,
+      [commitmentHash]
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          id: row.id,
+          surveyId: row.survey_id,
+          encryptedAnswer: row.encrypted_answer,
+          decryptedAnswer: row.decrypted_answer,
+          commitmentHash: row.commitment_hash,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }
+      : null;
   }
 
   /**
@@ -90,9 +121,11 @@ export class ResponseService {
    * @returns {Promise<Object>} Statistics object
    */
   async getResponseStats(surveyId: string) {
-    const responses = await prisma.surveyResponse.findMany({
-      where: { surveyId }
-    });
+    const result = await db.query(
+      `SELECT decrypted_answer FROM survey_responses WHERE survey_id = $1`,
+      [surveyId]
+    );
+    const responses = result.rows;
 
     return {
       totalResponses: responses.length,
@@ -111,18 +144,24 @@ export class ResponseService {
   async decryptAllSurveyResponses(surveyId: string) {
     try {
       // Check if survey exists
-      const survey = await prisma.survey.findUnique({
-        where: { id: surveyId },
-        include: {
-          privateKey: true
-        }
-      });
+      const surveyResult = await db.query(
+        `SELECT id, short_id FROM surveys WHERE id = $1 LIMIT 1`,
+        [surveyId]
+      );
+      const survey = surveyResult.rows[0]
+        ? { id: surveyResult.rows[0].id, shortId: surveyResult.rows[0].short_id }
+        : null;
 
       if (!survey) {
         throw new Error('Survey not found');
       }
 
-      if (!survey.privateKey) {
+      // Ensure private keys exist for this survey
+      const privResult = await db.query(
+        `SELECT 1 FROM survey_private_keys WHERE survey_id = $1 LIMIT 1`,
+        [surveyId]
+      );
+      if (privResult.rowCount === 0) {
         throw new Error('Survey private keys not found');
       }
 
@@ -146,13 +185,12 @@ export class ResponseService {
           const commitment = blockchainSurvey.data.commitments[i];
 
           // Check if this response is already decrypted
-          const existingResponse = await prisma.surveyResponse.findFirst({
-            where: { 
-              commitmentHash: Buffer.from(commitment).toString('hex')
-            }
-          });
+          const existsRes = await db.query(
+            `SELECT 1 FROM survey_responses WHERE commitment_hash = $1 LIMIT 1`,
+            [Buffer.from(commitment).toString('hex')]
+          );
 
-          if (existingResponse) {
+          if ((existsRes.rowCount ?? 0) > 0) {
             continue; // Skip already processed responses
           }
 
@@ -164,14 +202,17 @@ export class ResponseService {
           );
 
           // Store the decrypted response in database
-          await prisma.surveyResponse.create({
-            data: {
+          await db.query(
+            `INSERT INTO survey_responses (id, survey_id, encrypted_answer, decrypted_answer, commitment_hash, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+            [
+              crypto.randomUUID(),
               surveyId,
-              encryptedAnswer: Buffer.from(encryptedAnswer).toString('base64'),
+              Buffer.from(encryptedAnswer).toString('base64'),
               decryptedAnswer,
-              commitmentHash: Buffer.from(commitment).toString('hex')
-            }
-          });
+              Buffer.from(commitment).toString('hex'),
+            ]
+          );
 
           processedCount++;
         } catch (decryptError) {
