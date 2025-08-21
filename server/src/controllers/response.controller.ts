@@ -3,7 +3,6 @@ import { ResponseService } from '../services/response.service';
 import { BlockchainService } from '../services/blockchain.service';
 
 const responseService = new ResponseService();
-const blockchainService = new BlockchainService();
 
 export class ResponseController {
   /**
@@ -62,9 +61,24 @@ export class ResponseController {
 
       let signature: string;
 
+      // Lazily instantiate blockchain service with error handling
+      let blockchainService: BlockchainService | null = null;
+      try {
+        blockchainService = new BlockchainService();
+      } catch (e: any) {
+        console.warn('⚠️ Blockchain service unavailable:', e?.message || e);
+        // If fallback mode is desired, ensure SOLANA_FALLBACK_MODE is true
+        if (process.env.SOLANA_FALLBACK_MODE !== 'true') {
+          return res.status(500).json({
+            error: 'Blockchain service initialization failed',
+            details: e?.message || 'Unknown error'
+          });
+        }
+      }
+
       if (userKeyJson) {
         // Use provided user keypair - pass shortId to blockchain service
-        signature = await blockchainService.submitResponseWithUserJson(
+        signature = await blockchainService!.submitResponseWithUserJson(
           survey.shortId,
           commitmentBuffer,
           encryptedAnswerBuffer,
@@ -75,7 +89,7 @@ export class ResponseController {
         // 1. School pays all transaction costs
         // 2. System is anonymous - no need for separate user keys
         // 3. Authority has sufficient SOL (500M+ in test environment)
-        signature = await blockchainService.submitResponseAsAuthority(
+        signature = await blockchainService!.submitResponseAsAuthority(
           survey.shortId,
           commitmentBuffer,
           encryptedAnswerBuffer
