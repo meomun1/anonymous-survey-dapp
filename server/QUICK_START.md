@@ -107,9 +107,13 @@ PORT=3001 npm run dev
 
 ### Authentication Issues
 ```bash
-# Generate new admin password hash
-npm run generate-admin-hash
-# Then update ADMIN_PASSWORD_HASH in .env
+# Generate new admin password hash and remember to QUOTE the value when exporting manually
+npm run generate-admin-hash admin123
+# Then update ADMIN_PASSWORD_HASH in .env, e.g.:
+# ADMIN_PASSWORD_HASH="$2b$10$..."
+
+# If exporting in the shell, use single quotes to avoid truncation of $ characters:
+export ADMIN_PASSWORD_HASH='$2b$10$...'
 ```
 
 ---

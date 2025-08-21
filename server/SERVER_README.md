@@ -24,7 +24,8 @@ The school backend server handles blind signature operations, token management, 
 ## Key Features
 - **Automatic cryptographic key generation** (RSA-2048 blind signature & encryption keys)
 - **Blind signature generation** for anonymous participation
-- **Token-based authentication** with email distribution
+- **Token-based authentication** with automated email distribution
+- **Professional email templates** with survey details and secure token delivery
 - **Survey data encryption/decryption** 
 - **Blockchain integration** for immutable storage
 - **Merkle tree generation** for result verification
@@ -50,8 +51,11 @@ npm install
 cp env.txt .env
 # Edit .env with your configuration
 
-# Run database migrations
-npx prisma migrate dev
+# Setup database (raw SQL)
+# Apply SQL migrations using psql (matches docker-compose)
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250527104950_init/migration.sql
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529153118_init/migration.sql
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529181246_add_short_id/migration.sql
 
 # Start development server
 npm run dev
@@ -119,10 +123,10 @@ server/
 │   │   ├── token.routes.ts
 │   │   └── auth.routes.ts
 │   ├── middleware/      # Express middleware
-│   ├── models/          # Database models (Prisma)
+│   ├── models/          # Database models (Raw SQL)
 │   ├── utils/           # Utility functions
 │   └── config/          # Configuration files
-├── prisma/              # Database schema and migrations
+├── prisma/              # SQL migration files
 └── tests/               # Test files
 ```
 
@@ -153,6 +157,7 @@ GET  /api/tokens/validate/:token   # Validate if token can be used
 POST /api/tokens/:token/use        # Mark token as used (student starts survey)
 POST /api/tokens/:token/complete   # Mark token as completed (student finishes)
 GET  /api/tokens/survey/:surveyId  # Get all tokens for a survey
+GET  /api/tokens/test-email        # Test SMTP connection (admin only)
 ```
 
 ### Cryptographic Operations Endpoints
@@ -324,6 +329,50 @@ curl -X GET http://localhost:3000/api/surveys/survey_12345/results
 // 5. Public can verify results using commitment verification
 ```
 
+## Email Functionality
+
+### SMTP Configuration
+The system supports various SMTP providers including:
+- **Office 365** (smtp.office365.com:587)
+- **Gmail** (smtp.gmail.com:587)
+- **Custom SMTP servers**
+
+### Email Features
+- **Automated token distribution** to student emails
+- **Professional HTML email templates** with survey details
+- **Plain text fallback** for email clients that don't support HTML
+- **Batch email processing** with success/failure tracking
+- **SMTP connection testing** endpoint for troubleshooting
+
+### Email Templates
+Each student receives a personalized email containing:
+- Survey title, description, and question
+- Unique access token (securely displayed)
+- Direct link to participate in the survey
+- Privacy and security instructions
+
+### Testing Email Service
+```bash
+# Test SMTP connection (admin only)
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  http://localhost:3000/api/tokens/test-email
+
+# End-to-end: create a survey and send token to your email
+JWT_TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@school.edu","password":"admin123"}' | jq -r '.token')
+
+SURVEY_ID=$(curl -s -X POST http://localhost:3000/api/surveys \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -d '{"title":"Email Test Survey","description":"Testing email","question":"How is it?"}' | jq -r '.id')
+
+curl -s -X POST http://localhost:3000/api/tokens/batch-generate \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -d '{"surveyId":"'"$SURVEY_ID"'","students":[{"email":"your_email@example.com"}]}'
+```
+
 ## Cryptographic Features
 
 ### Blind Signatures (RSA-BSSA)
@@ -414,7 +463,7 @@ CREATE TABLE survey_responses (
 
 ### Data Protection
 - **Input validation** on all API endpoints
-- **SQL injection prevention** via Prisma ORM
+- **SQL injection prevention** via parameterized queries
 - **XSS protection** with proper response headers
 - **CORS configuration** for cross-origin security
 
@@ -431,7 +480,7 @@ CREATE TABLE survey_responses (
 - **TTL configuration** for automatic cache expiration
 
 ### Database Optimizations
-- **Connection pooling** via Prisma
+- **Connection pooling** via pg.Pool
 - **Indexed queries** on frequently searched fields
 - **Batch operations** for token generation and validation
 
@@ -448,10 +497,13 @@ npm run lint             # Run ESLint code analysis
 
 ### Database Management  
 ```bash
-npx prisma migrate dev   # Run database migrations
-npx prisma generate      # Generate Prisma client
-npx prisma studio        # Open database GUI
-npx prisma db seed       # Seed database with test data
+# Apply SQL migrations
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250527104950_init/migration.sql
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529153118_init/migration.sql
+docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529181246_add_short_id/migration.sql
+
+# Connect to database
+psql "postgresql://postgres:postgres@localhost:5432/anonymous_survey"
 ```
 
 ### Testing
@@ -480,7 +532,7 @@ docker run -p 3000:3000 \
 - **Environment variables** must be properly configured
 - **Database migrations** should be run before deployment
 - **Redis instance** must be accessible
-- **SMTP credentials** must be valid for email functionality
+        - **SMTP credentials** must be valid for email functionality (Office 365, Gmail, etc.)
 - **Solana RPC endpoint** must be reliable and funded
 
 ## Error Handling

@@ -1,29 +1,11 @@
 import { Request, Response } from 'express';
 import { TokenService } from '../services/token.service';
-import nodemailer from 'nodemailer';
+import { EmailService } from '../services/email.service';
+import { SurveyService } from '../services/survey.service';
 
 const tokenService = new TokenService();
-
-// Configure email transporter with fallback for development
-const createTransporter = () => {
-  // Check if SMTP is properly configured
-  if (!process.env.SMTP_HOST || process.env.SMTP_HOST === 'your-smtp-host') {
-    console.warn('⚠️ SMTP not configured, emails will be skipped');
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-};
-
-const transporter = createTransporter();
+const emailService = new EmailService();
+const surveyService = new SurveyService();
 
 export class TokenController {
   // Generate tokens for multiple students
@@ -35,28 +17,44 @@ export class TokenController {
         return res.status(400).json({ error: 'Invalid students data' });
       }
 
+      // Generate tokens first
       const tokens = await tokenService.generateBatchTokens(surveyId, students);
       
-      // Send tokens via email if transporter is configured
-      if (transporter) {
+      // Get survey information for email
+      const survey = await surveyService.getSurvey(surveyId);
+      if (!survey) {
+        return res.status(404).json({ error: 'Survey not found' });
+      }
+
+      // Send tokens via email
+      if (emailService.isAvailable()) {
         try {
-          await Promise.all(tokens.map(async (token) => {
-            await transporter.sendMail({
-              from: process.env.SMTP_FROM,
-              to: token.studentEmail,
-              subject: 'Your Survey Token',
-              html: `
-                <h1>Survey Token</h1>
-                <p>Your token for the survey is: <strong>${token.token}</strong></p>
-                <p>Please use this token to access the survey.</p>
-              `,
-            });
-          }));
+          const emailResults = await emailService.sendBatchSurveyTokens(
+            tokens.map(t => ({ token: t.token, studentEmail: t.studentEmail })),
+            {
+              id: survey.id,
+              shortId: survey.shortId,
+              title: survey.title,
+              description: survey.description,
+              question: survey.question
+            }
+          );
+
+          if (emailResults.success > 0) {
+            console.log(`📧 Successfully sent ${emailResults.success} survey tokens via email`);
+          }
           
+          if (emailResults.failed > 0) {
+            console.warn(`⚠️ Failed to send ${emailResults.failed} survey tokens via email`);
+          }
+
           res.status(201).json({
-            message: 'Tokens generated and sent successfully',
+            message: 'Tokens generated and emails sent',
             count: tokens.length,
-            tokens: tokens.map(t => ({ token: t.token, email: t.studentEmail }))
+            emailsSent: emailResults.success,
+            emailsFailed: emailResults.failed,
+            tokens: tokens.map(t => ({ token: t.token, email: t.studentEmail })),
+            emailDetails: emailResults.details
           });
         } catch (emailError) {
           console.warn('⚠️ Email sending failed, but tokens were created:', emailError);
@@ -64,16 +62,17 @@ export class TokenController {
             message: 'Tokens generated but email sending failed',
             count: tokens.length,
             tokens: tokens.map(t => ({ token: t.token, email: t.studentEmail })),
-            warning: 'Emails could not be sent'
+            warning: 'Emails could not be sent',
+            error: emailError instanceof Error ? emailError.message : 'Unknown error'
           });
         }
       } else {
-        console.log('📧 SMTP not configured, tokens created without email notification');
+        console.log('📧 Email service not available, tokens created without email notification');
         res.status(201).json({
           message: 'Tokens generated successfully (no email notification)',
           count: tokens.length,
           tokens: tokens.map(t => ({ token: t.token, email: t.studentEmail })),
-          info: 'Email sending disabled - tokens shown for testing'
+          info: 'Email service disabled - tokens shown for testing'
         });
       }
     } catch (error) {
@@ -145,6 +144,33 @@ export class TokenController {
       res.json(tokens);
     } catch (error) {
       res.status(500).json({ error: 'Failed to get survey tokens' });
+    }
+  }
+
+  // Test email service and SMTP connection
+  async testEmailService(req: Request, res: Response) {
+    try {
+      const status = {
+        available: emailService.isAvailable(),
+        smtpTested: false,
+        message: ''
+      };
+
+      if (status.available) {
+        try {
+          const connectionTest = await emailService.testConnection();
+          status.smtpTested = true;
+          status.message = connectionTest ? 'SMTP connection successful' : 'SMTP connection failed';
+        } catch (error) {
+          status.message = `SMTP test error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        }
+      } else {
+        status.message = 'Email service not available - check SMTP configuration';
+      }
+
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to test email service' });
     }
   }
 } 

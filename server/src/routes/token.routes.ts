@@ -20,5 +20,7 @@ router.post('/:token/complete', tokenController.markTokenAsCompleted.bind(tokenC
 // Get all tokens for a survey
 router.get('/survey/:surveyId', tokenController.getSurveyTokens.bind(tokenController));
 
+// Test email service (admin only)
+router.get('/test-email', verifyToken, requireAdmin, tokenController.testEmailService.bind(tokenController));
 
 export default router; 
