@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { tokensApi, TokenValidationResponse, BatchGenerateTokensData, BatchGenerateTokensResponse } from '@/lib/api/tokens';
+import { tokensApi, TokenValidationResponse, BatchGenerateTokensData, BatchGenerateTokensResponse, Token } from '@/lib/api/tokens';
 
 export const useTokens = () => {
   const [loading, setLoading] = useState(false);
@@ -24,7 +24,9 @@ export const useTokens = () => {
       setLoading(true);
       setError(null);
       const response = await tokensApi.markTokenAsUsed(token);
-      return response.data.success;
+      // Server returns updated token object; treat any 2xx as success
+      const _updated: Token = response.data;
+      return !!_updated;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to mark token as used');
       throw err;
@@ -38,7 +40,8 @@ export const useTokens = () => {
       setLoading(true);
       setError(null);
       const response = await tokensApi.markTokenAsCompleted(token);
-      return response.data.success;
+      const _updated: Token = response.data;
+      return !!_updated;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to mark token as completed');
       throw err;

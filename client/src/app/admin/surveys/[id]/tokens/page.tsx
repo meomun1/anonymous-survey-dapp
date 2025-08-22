@@ -85,32 +85,9 @@ export default function TokenManagementPage({ params }: { params: { id: string }
     }
   };
 
-  const handleDeleteToken = async (tokenId: number) => {
-    if (!confirm('Are you sure you want to delete this token?')) {
-      return;
-    }
-
-    try {
-      await tokensApi.deleteToken(tokenId);
-      setTokens(tokens.filter(t => t.id !== tokenId));
-    } catch (err: any) {
-      console.error('Failed to delete token:', err);
-      setError('Failed to delete token');
-    }
-  };
-
-  const handleResendEmail = async (tokenId: number) => {
-    try {
-      setBulkActionLoading(true);
-      await tokensApi.resendTokenEmail(tokenId);
-      // Show success message or update UI
-    } catch (err: any) {
-      console.error('Failed to resend email:', err);
-      setError('Failed to resend email');
-    } finally {
-      setBulkActionLoading(false);
-    }
-  };
+  // Resend/Delete are not supported by current server; keep handlers as no-ops guarded out in UI
+  const handleDeleteToken = async (_tokenId: string) => {};
+  const handleResendEmail = async (_tokenId: string) => {};
 
   if (!isAuthenticated()) {
     return null;
@@ -143,6 +120,23 @@ export default function TokenManagementPage({ params }: { params: { id: string }
                 className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors"
               >
                 Generate Tokens
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    setBulkActionLoading(true);
+                    const res = await tokensApi.testEmailService();
+                    alert(res.data.message || 'SMTP test completed');
+                  } catch (e: any) {
+                    alert(e?.response?.data?.error || e?.message || 'SMTP test failed');
+                  } finally {
+                    setBulkActionLoading(false);
+                  }
+                }}
+                disabled={bulkActionLoading}
+                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:bg-blue-300 transition-colors"
+              >
+                Test SMTP
               </button>
               <Link
                 href={`/admin/surveys/${surveyId}`}
@@ -332,22 +326,10 @@ export default function TokenManagementPage({ params }: { params: { id: string }
                           : 'No activity'
                         }
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                        {!token.used && (
-                          <button
-                            onClick={() => handleResendEmail(token.id)}
-                            disabled={bulkActionLoading}
-                            className="text-blue-600 hover:text-blue-900 disabled:text-gray-400"
-                          >
-                            Resend Email
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteToken(token.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Delete
-                        </button>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2 text-gray-400">
+                        <span title="Resend Email - not available">Resend Email</span>
+                        <span className="mx-2">·</span>
+                        <span title="Delete - not available">Delete</span>
                       </td>
                     </tr>
                   ))}
