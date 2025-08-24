@@ -30,6 +30,7 @@ export default function SurveyParticipationPage({ params }: { params: { id: stri
   const [error, setError] = useState('');
   const [currentStep, setCurrentStep] = useState(1);
   const [progress, setProgress] = useState(0);
+  const MAX_CHARS = 150; // Conservative limit to stay within RSA-OAEP 190-byte limit
 
   useEffect(() => {
     if (!token) {
@@ -67,6 +68,12 @@ export default function SurveyParticipationPage({ params }: { params: { id: stri
   const handleSubmit = async () => {
     if (!answer.trim()) {
       setError('Please provide an answer');
+      return;
+    }
+
+    // Check character limit
+    if (answer.length > MAX_CHARS) {
+      setError(`Answer must be ${MAX_CHARS} characters or less`);
       return;
     }
 
@@ -291,6 +298,14 @@ export default function SurveyParticipationPage({ params }: { params: { id: stri
             <label className="block text-lg font-semibold text-gray-900 mb-4">
               {survey.question}
             </label>
+            <div className="mb-2">
+              <div className="flex justify-between items-center text-sm text-gray-600">
+                <span>Character limit: {MAX_CHARS}</span>
+                <span className={answer.length > MAX_CHARS ? 'text-red-600 font-medium' : ''}>
+                  {answer.length}/{MAX_CHARS}
+                </span>
+              </div>
+            </div>
             <textarea
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
@@ -299,6 +314,7 @@ export default function SurveyParticipationPage({ params }: { params: { id: stri
               rows={6}
               disabled={submitting}
               required
+              maxLength={MAX_CHARS}
             />
           </div>
 
@@ -335,7 +351,7 @@ export default function SurveyParticipationPage({ params }: { params: { id: stri
             </button>
             <button
               onClick={handleSubmit}
-              disabled={submitting || !answer.trim()}
+              disabled={submitting || !answer.trim() || answer.length > MAX_CHARS}
               className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
             >
               {submitting ? 'Processing...' : 'Submit Response'}
@@ -349,6 +365,7 @@ export default function SurveyParticipationPage({ params }: { params: { id: stri
               <li>• A blind signature ensures anonymity while preventing fraud</li>
               <li>• You'll receive a cryptographic proof of participation</li>
               <li>• Results are verifiable but cannot be linked to individuals</li>
+              <li>• Response length is limited to {MAX_CHARS} characters to ensure cryptographic compatibility</li>
             </ul>
           </div>
         </div>
