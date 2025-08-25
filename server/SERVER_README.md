@@ -51,11 +51,12 @@ npm install
 cp env.txt .env
 # Edit .env with your configuration
 
-# Setup database (raw SQL)
-# Apply SQL migrations using psql (matches docker-compose)
-docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250527104950_init/migration.sql
-docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529153118_init/migration.sql
-docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529181246_add_short_id/migration.sql
+# Setup database (using scripts in server/database)
+# Option A: Fresh database
+cd server/database && createdb anonymous_survey && psql -d anonymous_survey -f init.sql && cd -
+
+# Option B: Apply/refresh schema to existing DB
+psql -d anonymous_survey -f server/database/schema.sql
 
 # Start development server
 npm run dev
@@ -132,6 +133,8 @@ server/
 
 ## REST API Documentation
 
+> Interactive API docs are available at `/api-docs` (Swagger UI). Quick status at `/api-status`.
+
 ### Authentication Endpoints
 ```
 POST /api/auth/login          # Admin login with email/password
@@ -140,14 +143,15 @@ POST /api/auth/refresh        # Refresh JWT token
 
 ### Survey Management Endpoints
 ```
-GET    /api/surveys              # List all surveys with statistics
-POST   /api/surveys              # Create new survey (auto-generates keys)
-GET    /api/surveys/:id          # Get survey details with tokens/responses
-GET    /api/surveys/:id/stats    # Get survey participation statistics
-GET    /api/surveys/:id/results  # Get published survey results
-GET    /api/surveys/:id/keys     # Get survey public keys
-POST   /api/surveys/:id/publish-with-proof  # Publish survey with Merkle proof
-DELETE /api/surveys/:id          # Delete survey and cleanup
+GET    /api/surveys                          # List all surveys with statistics
+POST   /api/surveys                          # Create new survey (auto-generates keys)
+PUT    /api/surveys/:id                      # Update survey (title/description/question)
+GET    /api/surveys/:id                      # Get survey details with tokens/responses
+GET    /api/surveys/:id/stats                # Get survey participation statistics
+GET    /api/surveys/:id/results              # Get published survey results
+GET    /api/surveys/:id/keys                 # Get survey public keys
+POST   /api/surveys/:id/publish-with-proof   # Publish survey with Merkle proof
+DELETE /api/surveys/:id                      # Delete survey and cleanup
 ```
 
 ### Token Management Endpoints  
@@ -164,10 +168,21 @@ GET  /api/tokens/test-email        # Test SMTP connection (admin only)
 ```
 POST /api/crypto/blind-sign/:surveyId      # Generate blind signature
 POST /api/crypto/verify-commitment         # Verify answer commitment
-POST /api/crypto/decrypt-response          # Decrypt individual response  
+POST /api/crypto/decrypt-response          # Decrypt individual response
 GET  /api/crypto/public-keys/:surveyId     # Get survey public keys
 POST /api/crypto/generate-commitment       # Generate commitment hash
 POST /api/crypto/bulk-verify-commitments   # Verify multiple commitments
+```
+
+### Response Endpoints
+```
+POST /api/responses/blind-sign/:surveyId       # Generate blind signature (response flow)
+POST /api/responses/submit-to-blockchain       # Submit encrypted response to blockchain
+POST /api/responses/decrypt-all/:surveyId      # Decrypt all responses for a survey
+GET  /api/responses/survey/:surveyId           # List responses for a survey
+GET  /api/responses/commitment/:commitmentHash # Get response by commitment hash
+GET  /api/responses/stats/:surveyId            # Get response statistics
+GET  /api/responses/verify/:responseId         # Verify response integrity
 ```
 
 ## API Usage Examples
@@ -498,9 +513,7 @@ npm run lint             # Run ESLint code analysis
 ### Database Management  
 ```bash
 # Apply SQL migrations
-docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250527104950_init/migration.sql
-docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529153118_init/migration.sql
-docker exec -i anonymous_survey_postgres psql -U postgres -d anonymous_survey < prisma/migrations/20250529181246_add_short_id/migration.sql
+psql -d anonymous_survey -f server/database/schema.sql
 
 # Connect to database
 psql "postgresql://postgres:postgres@localhost:5432/anonymous_survey"
