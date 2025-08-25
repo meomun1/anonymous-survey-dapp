@@ -23,6 +23,9 @@ export const surveysApi = {
   
   getById: (id: string): Promise<AxiosResponse<Survey>> => apiClient.get(`/surveys/${id}`),
   
+  getKeys: (id: string): Promise<AxiosResponse<{ blindSignaturePublicKey: string; encryptionPublicKey: string }>> =>
+    apiClient.get(`/surveys/${id}/keys`),
+  
   create: (data: CreateSurveyData): Promise<AxiosResponse<Survey>> => 
     apiClient.post('/surveys', data),
   

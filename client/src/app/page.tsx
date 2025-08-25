@@ -57,6 +57,12 @@ export default function HomePage() {
           >
             Enter Survey Token
           </Link>
+          <Link 
+            href="/surveys/verify" 
+            className="inline-block ml-3 bg-white text-blue-600 border border-blue-600 px-6 py-3 rounded-lg hover:bg-blue-50 transition-colors"
+          >
+            Verify your response
+          </Link>
         </div>
 
         {/* Admin Section */}
