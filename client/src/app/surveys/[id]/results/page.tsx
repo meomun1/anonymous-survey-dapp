@@ -13,9 +13,9 @@ interface SurveyResults {
   publishedAt: string | null;
   merkleRoot: string | null;
   answerDistribution: Record<string, number>;
-  verificationData: {
-    commitmentHashes: string[];
-    blockchainAddress: string;
+  verificationData?: {
+    commitmentHashes?: string[];
+    blockchainAddress?: string;
   };
 }
 
@@ -42,10 +42,14 @@ export default function PublicResultsPage({ params }: { params: { id: string } }
       }
     } catch (err: any) {
       console.error('Failed to load results:', err);
-      if (err.response?.status === 404) {
+      const status = err.response?.status;
+      const message = err.response?.data?.error;
+      if (status === 404) {
         setError('Survey not found or results not yet published');
+      } else if (status === 400) {
+        setError(message || 'Survey is not yet published');
       } else {
-        setError('Failed to load survey results');
+        setError(message || 'Failed to load survey results');
       }
     } finally {
       setLoading(false);
@@ -241,17 +245,24 @@ export default function PublicResultsPage({ params }: { params: { id: string } }
                   </code>
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Blockchain Address</label>
-                  <code className="block text-sm bg-gray-100 p-3 rounded-lg break-all">
-                    {results.verificationData.blockchainAddress}
-                  </code>
-                </div>
+                {results.verificationData?.blockchainAddress ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Blockchain Address</label>
+                    <code className="block text-sm bg-gray-100 p-3 rounded-lg break-all">
+                      {results.verificationData.blockchainAddress}
+                    </code>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Blockchain Address</label>
+                    <p className="text-sm text-gray-600">Not available</p>
+                  </div>
+                )}
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Total Commitments</label>
                   <p className="text-sm text-gray-900">
-                    {results.verificationData.commitmentHashes.length} cryptographic commitments verified
+                    {(results.verificationData?.commitmentHashes?.length ?? 0)} cryptographic commitments verified
                   </p>
                 </div>
               </div>
@@ -357,16 +368,18 @@ export default function PublicResultsPage({ params }: { params: { id: string } }
                   <li>3. Verify the merkle root matches</li>
                   <li>4. Check individual response commitments</li>
                 </ol>
-                <div className="mt-4">
-                  <a
-                    href={`https://explorer.solana.com/address/${results.verificationData.blockchainAddress}?cluster=devnet`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                  >
-                    View on Blockchain Explorer
-                  </a>
-                </div>
+                {results.verificationData?.blockchainAddress && (
+                  <div className="mt-4">
+                    <a
+                      href={`https://explorer.solana.com/address/${results.verificationData.blockchainAddress}?cluster=devnet`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                    >
+                      View on Blockchain Explorer
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
           </div>

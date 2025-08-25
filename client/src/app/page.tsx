@@ -80,12 +80,12 @@ export default function HomePage() {
             >
               Admin Login
             </Link>
-            <Link 
+            {/* <Link 
               href="/surveys" 
               className="inline-block bg-white text-green-600 border border-green-600 px-6 py-3 rounded-lg hover:bg-green-50 transition-colors"
             >
               View Surveys
-            </Link>
+            </Link> */}
           </div>
         </div>
       </div>

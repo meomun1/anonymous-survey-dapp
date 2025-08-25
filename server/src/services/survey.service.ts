@@ -529,105 +529,24 @@ export class SurveyService {
         throw new Error('Survey is not yet published');
       }
 
-      if (this.fallbackMode) {
-        // In fallback mode, return database results directly
-        console.log('📋 Getting survey results in fallback mode');
-        
-        const answerCounts: { [key: string]: number } = {};
-        survey.responses.forEach((response: any) => {
-          if (response.decryptedAnswer) {
-            answerCounts[response.decryptedAnswer] = (answerCounts[response.decryptedAnswer] || 0) + 1;
-          }
-        });
+      // Always compute results from database (post-publish ciphertexts are cleared on-chain)
+      const answerCounts: { [key: string]: number } = {};
+      const decryptedList: string[] = (survey.responses || [])
+        .map((r: any) => r.decryptedAnswer ?? r.decrypted_answer)
+        .filter((x: any) => typeof x === 'string');
+      decryptedList.forEach((ans: string) => {
+        answerCounts[ans] = (answerCounts[ans] || 0) + 1;
+      });
 
-        return {
-          surveyId: survey.id,
-          title: survey.title,
-          totalResponses: survey.totalResponses,
-          answerDistribution: answerCounts,
-          isPublished: survey.isPublished,
-          publishedAt: survey.publishedAt,
-          merkleRoot: survey.merkleRoot
-        };
-      }
-
-      // Blockchain mode - verify with blockchain data
-      try {
-        // Get survey from blockchain using shortId
-        const blockchainSurvey = await this.blockchainService?.getSurvey(survey.shortId);
-        
-        if (!blockchainSurvey?.data?.encryptedAnswers || blockchainSurvey.data.encryptedAnswers.length === 0) {
-          throw new Error('No encrypted responses found on blockchain');
-        }
-
-        const encryptedAnswers = blockchainSurvey.data.encryptedAnswers.map((answer: any) => 
-          Buffer.from(answer)
-        );
-
-        // Decrypt all responses
-        const decryptedAnswers = await this.cryptoService.decryptAllResponses(surveyId, encryptedAnswers);
-
-        // Store decrypted responses in database
-        const responses = await Promise.all(
-          decryptedAnswers.map(async (answer: string, index: number) => {
-            const commitment = blockchainSurvey!.data.commitments[index];
-            const commitmentHash = Buffer.from(commitment).toString('hex');
-
-            await db.query(
-              `INSERT INTO survey_responses (id, survey_id, encrypted_answer, decrypted_answer, commitment_hash, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
-              [
-                crypto.randomUUID(),
-                surveyId,
-                encryptedAnswers[index].toString('base64'),
-                answer,
-                commitmentHash,
-              ]
-            );
-            return { decryptedAnswer: answer, commitmentHash } as any;
-          })
-        );
-
-        // Update survey response count
-        await db.query(`UPDATE surveys SET total_responses = $2, updated_at = NOW() WHERE id = $1`, [surveyId, responses.length]);
-
-        // Calculate answer distribution
-        const answerCounts: { [key: string]: number } = {};
-        responses.forEach(response => {
-          if (response.decryptedAnswer) {
-            answerCounts[response.decryptedAnswer] = (answerCounts[response.decryptedAnswer] || 0) + 1;
-          }
-        });
-
-        return {
-          surveyId: survey.id,
-          title: survey.title,
-          totalResponses: blockchainSurvey.data.totalResponses,
-          answerDistribution: answerCounts,
-          isPublished: blockchainSurvey.data.isPublished,
-          publishedAt: survey.publishedAt,
-          merkleRoot: Buffer.from(blockchainSurvey.data.merkleRoot).toString('hex')
-        };
-      } catch (blockchainError) {
-        console.warn('⚠️ Blockchain operation failed, falling back to database:', blockchainError);
-        // Fallback to database results if blockchain fails
-        const answerCounts: { [key: string]: number } = {};
-        survey.responses.forEach((response: any) => {
-          if (response.decrypted_answer) {
-            answerCounts[response.decrypted_answer] = (answerCounts[response.decrypted_answer] || 0) + 1;
-          }
-        });
-
-        return {
-          surveyId: survey.id,
-          title: survey.title,
-          totalResponses: survey.totalResponses,
-          answerDistribution: answerCounts,
-          isPublished: survey.isPublished,
-          publishedAt: survey.publishedAt,
-          merkleRoot: survey.merkleRoot
-        };
-      }
+      return {
+        surveyId: survey.id,
+        title: survey.title,
+        totalResponses: decryptedList.length,
+        answerDistribution: answerCounts,
+        isPublished: survey.isPublished,
+        publishedAt: survey.publishedAt,
+        merkleRoot: survey.merkleRoot
+      };
     } catch (error: any) {
       throw new Error(`Failed to get survey results: ${error.message}`);
     }
