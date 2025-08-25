@@ -73,6 +73,24 @@ export class SurveyController {
     }
   }
 
+  async updateSurvey(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { title, description, question } = req.body;
+      
+      const survey = await surveyService.updateSurvey(id, {
+        title,
+        description,
+        question,
+      });
+  
+      res.json(survey);
+    } catch (error) {
+      console.error('Failed to update survey:', error);
+      res.status(500).json({ error: 'Failed to update survey' });
+    }
+  }
+
   async getSurveyResults(req: Request, res: Response) {
     try {
       const { id } = req.params;

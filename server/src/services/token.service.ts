@@ -32,9 +32,9 @@ export class TokenService {
         const tokenValue = this.generateToken();
         const id = crypto.randomUUID();
         const result = await db.query(
-          `INSERT INTO tokens (id, survey_id, token, student_email, used, "isCompleted", created_at, updated_at)
+          `INSERT INTO tokens (id, survey_id, token, student_email, used, is_completed, created_at, updated_at)
            VALUES ($1, $2, $3, $4, false, false, NOW(), NOW())
-           RETURNING id, survey_id, token, student_email, used, "isCompleted", created_at, updated_at`,
+           RETURNING id, survey_id, token, student_email, used, is_completed AS "isCompleted", created_at, updated_at`,
           [id, surveyId, tokenValue, student.email]
         );
         const row = result.rows[0];
@@ -80,7 +80,7 @@ export class TokenService {
 
     // If not in cache, get from database
     const result = await db.query(
-      `SELECT id, survey_id, token, student_email, used, "isCompleted" AS "isCompleted", created_at, updated_at
+      `SELECT id, survey_id, token, student_email, used, is_completed AS "isCompleted", created_at, updated_at
        FROM tokens WHERE token = $1 LIMIT 1`,
       [token]
     );
@@ -135,7 +135,7 @@ export class TokenService {
   async markTokenAsUsed(token: string) {
     const result = await db.query(
       `UPDATE tokens SET used = true, updated_at = NOW() WHERE token = $1
-       RETURNING id, survey_id, token, student_email, used, "isCompleted" AS "isCompleted", created_at, updated_at`,
+       RETURNING id, survey_id, token, student_email, used, is_completed AS "isCompleted", created_at, updated_at`,
       [token]
     );
     const row = result.rows[0];
@@ -165,8 +165,8 @@ export class TokenService {
    */
   async markTokenAsCompleted(token: string) {
     const result = await db.query(
-      `UPDATE tokens SET "isCompleted" = true, updated_at = NOW() WHERE token = $1
-       RETURNING id, survey_id, token, student_email, used, "isCompleted" AS "isCompleted", created_at, updated_at`,
+      `UPDATE tokens SET is_completed = true, updated_at = NOW() WHERE token = $1
+       RETURNING id, survey_id, token, student_email, used, is_completed AS "isCompleted", created_at, updated_at`,
       [token]
     );
     const row = result.rows[0];
@@ -196,7 +196,7 @@ export class TokenService {
    */
   async getSurveyTokens(surveyId: string) {
     const result = await db.query(
-      `SELECT id, survey_id, token, student_email, used, "isCompleted" AS "isCompleted", created_at, updated_at
+      `SELECT id, survey_id, token, student_email, used, is_completed AS "isCompleted", created_at, updated_at
        FROM tokens WHERE survey_id = $1 ORDER BY created_at DESC`,
       [surveyId]
     );

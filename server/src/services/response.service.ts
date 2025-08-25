@@ -125,14 +125,15 @@ export class ResponseService {
       `SELECT decrypted_answer FROM survey_responses WHERE survey_id = $1`,
       [surveyId]
     );
-    const responses = result.rows;
+    const responses = result.rows as Array<{ decrypted_answer: string }>;
 
     return {
       totalResponses: responses.length,
-      averageResponseLength: responses.length > 0 
-        ? responses.reduce((sum: number, r: any) => sum + r.decryptedAnswer.length, 0) / responses.length 
-        : 0,
-      responsesByDay: {} // Could be expanded to show daily breakdown
+      averageResponseLength:
+        responses.length > 0
+          ? responses.reduce((sum, r) => sum + (r.decrypted_answer?.length || 0), 0) / responses.length
+          : 0,
+      responsesByDay: {}
     };
   }
 

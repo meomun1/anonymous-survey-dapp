@@ -163,7 +163,7 @@ export class SurveyService {
 
       // Update survey with blockchain address
       const updateRes = await db.query(
-        `UPDATE surveys SET "blockchainAddress" = $2, updated_at = NOW() WHERE id = $1 RETURNING *`,
+        `UPDATE surveys SET blockchain_address = $2, updated_at = NOW() WHERE id = $1 RETURNING *`,
         [survey.id, surveyPda.toString()]
       );
       const updatedSurvey = updateRes.rows[0];
@@ -192,6 +192,77 @@ export class SurveyService {
         client.release();
       }
       throw new Error('Failed to create survey on blockchain: ' + error.message);
+    }
+  }
+
+  /**
+   * Update an existing survey
+   * @param {string} id - Survey ID
+   * @param {Object} data - Updated survey data (title, description, question)
+   * @returns {Promise<Object>} Updated survey object
+   */
+  async updateSurvey(id: string, data: {
+    title?: string;
+    description?: string;
+    question?: string;
+  }) {
+    try {
+      // Check if survey exists
+      const existingSurvey = await db.query(
+        'SELECT id FROM surveys WHERE id = $1 LIMIT 1',
+        [id]
+      );
+
+      if (existingSurvey.rowCount === 0) {
+        throw new Error('Survey not found');
+      }
+
+      // Build update query dynamically
+      const updateFields: string[] = [];
+      const updateValues: any[] = [];
+      let paramCount = 1;
+
+      if (data.title !== undefined) {
+        updateFields.push(`title = $${++paramCount}`);
+        updateValues.push(data.title);
+      }
+      if (data.description !== undefined) {
+        updateFields.push(`description = $${++paramCount}`);
+        updateValues.push(data.description);
+      }
+      if (data.question !== undefined) {
+        updateFields.push(`question = $${++paramCount}`);
+        updateValues.push(data.question);
+      }
+
+      if (updateFields.length === 0) {
+        throw new Error('No fields to update');
+      }
+
+      updateFields.push(`updated_at = $${++paramCount}`);
+      updateValues.push(new Date());
+
+      // Add survey ID as first parameter
+      updateValues.unshift(id);
+
+      const updateQuery = `
+        UPDATE surveys 
+        SET ${updateFields.join(', ')}
+        WHERE id = $1
+        RETURNING *
+      `;
+
+      const result = await db.query(updateQuery, updateValues);
+      
+      // Clear cache
+      await Promise.all([
+        redis.del(`${SurveyService.SURVEY_CACHE_PREFIX}${id}`),
+        redis.del(SurveyService.SURVEY_LIST_CACHE_KEY)
+      ]);
+
+      return result.rows[0];
+    } catch (error) {
+      throw new Error(`Failed to update survey: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -281,7 +352,7 @@ export class SurveyService {
    * @returns {Promise<Object>} Statistics object with participation rates
    */
   async getSurveyStats(id: string) {
-    const tokensRes = await db.query(`SELECT used, "isCompleted" FROM tokens WHERE survey_id = $1`, [id]);
+    const tokensRes = await db.query(`SELECT used, is_completed AS "isCompleted" FROM tokens WHERE survey_id = $1`, [id]);
     const responsesRes = await db.query(`SELECT id FROM survey_responses WHERE survey_id = $1`, [id]);
 
     // If there are no tokens and no responses, still return zeros
@@ -337,6 +408,7 @@ export class SurveyService {
 
     return { success: true };
   }
+  
 
   /**
    * Get survey public keys for client operations
@@ -374,7 +446,7 @@ export class SurveyService {
       }
 
       // Convert encrypted answers to ArrayBuffer format
-      const encryptedAnswers = blockchainSurvey.data.encryptedAnswers.map(answer => 
+      const encryptedAnswers = blockchainSurvey.data.encryptedAnswers.map((answer: number[]) => 
         new Uint8Array(answer).buffer
       );
 
