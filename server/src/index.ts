@@ -3,7 +3,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import swaggerUi from 'swagger-ui-express';
 import { redisClient } from './config/redis';
+import { specs } from './config/swagger';
 import surveyRoutes from './routes/survey.routes';
 import tokenRoutes from './routes/token.routes';
 import responseRoutes from './routes/response.routes';
@@ -42,6 +44,25 @@ app.get('/health', async (req, res) => {
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
+});
+
+// API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
+
+// API Status Page
+app.get('/api-status', (req, res) => {
+  res.json({
+    status: 'API is running',
+    endpoints: {
+      auth: '/api/auth',
+      surveys: '/api/surveys',
+      tokens: '/api/tokens',
+      crypto: '/api/crypto',
+      responses: '/api/responses'
+    },
+    documentation: '/api-docs',
+    health: '/health'
+  });
 });
 
 // API routes

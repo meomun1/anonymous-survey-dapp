@@ -5,22 +5,255 @@ import { verifyToken, requireAdmin } from '../middleware/auth.middleware';
 const router = Router();
 const tokenController = new TokenController();
 
-// Generate tokens for multiple students (admin only)
+/**
+ * @swagger
+ * /tokens/batch-generate:
+ *   post:
+ *     summary: Generate tokens for multiple students (admin only)
+ *     tags: [Tokens]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - surveyId
+ *               - students
+ *             properties:
+ *               surveyId:
+ *                 type: string
+ *                 description: Survey ID
+ *               students:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     email:
+ *                       type: string
+ *                       format: email
+ *                       description: Student email address
+ *                 example:
+ *                   - email: "student1@university.edu"
+ *                   - email: "student2@university.edu"
+ *     responses:
+ *       201:
+ *         description: Tokens generated and emails sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 count:
+ *                   type: integer
+ *                 emailsSent:
+ *                   type: integer
+ *                 emailsFailed:
+ *                   type: integer
+ *                 tokens:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       token:
+ *                         type: string
+ *                       email:
+ *                         type: string
+ *       401:
+ *         description: Unauthorized - JWT token required
+ *       403:
+ *         description: Forbidden - Admin access required
+ */
 router.post('/batch-generate', verifyToken, requireAdmin, tokenController.generateBatchTokens.bind(tokenController));
 
-// Validate a token
+/**
+ * @swagger
+ * /tokens/validate/{token}:
+ *   get:
+ *     summary: Validate a token
+ *     tags: [Tokens]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Token to validate
+ *       - in: query
+ *         name: surveyId
+ *         schema:
+ *           type: string
+ *         description: Survey ID (optional)
+ *     responses:
+ *       200:
+ *         description: Token validation result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 valid:
+ *                   type: boolean
+ *                 token:
+ *                   type: string
+ *                 surveyId:
+ *                   type: string
+ *                 studentEmail:
+ *                   type: string
+ *                 isCompleted:
+ *                   type: boolean
+ *       404:
+ *         description: Invalid token
+ */
 router.get('/validate/:token', tokenController.validateToken.bind(tokenController));
 
-// Mark token as used
+/**
+ * @swagger
+ * /tokens/{token}/use:
+ *   post:
+ *     summary: Mark token as used
+ *     tags: [Tokens]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Token to mark as used
+ *     responses:
+ *       200:
+ *         description: Token marked as used successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                 token:
+ *                   type: string
+ *                 used:
+ *                   type: boolean
+ *                 usedAt:
+ *                   type: string
+ *                   format: date-time
+ *       404:
+ *         description: Token not found
+ */
 router.post('/:token/use', tokenController.markTokenAsUsed.bind(tokenController));
 
-// Mark token as completed
+/**
+ * @swagger
+ * /tokens/{token}/complete:
+ *   post:
+ *     summary: Mark token as completed
+ *     tags: [Tokens]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Token to mark as completed
+ *     responses:
+ *       200:
+ *         description: Token marked as completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                 token:
+ *                   type: string
+ *                 isCompleted:
+ *                   type: boolean
+ *                 completedAt:
+ *                   type: string
+ *                   format: date-time
+ *       404:
+ *         description: Token not found
+ */
 router.post('/:token/complete', tokenController.markTokenAsCompleted.bind(tokenController));
 
-// Get all tokens for a survey
+/**
+ * @swagger
+ * /tokens/survey/{surveyId}:
+ *   get:
+ *     summary: Get all tokens for a survey
+ *     tags: [Tokens]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: surveyId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Survey ID
+ *     responses:
+ *       200:
+ *         description: List of tokens for the survey
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                   token:
+ *                     type: string
+ *                   studentEmail:
+ *                     type: string
+ *                   used:
+ *                     type: boolean
+ *                   isCompleted:
+ *                     type: boolean
+ *                   createdAt:
+ *                     type: string
+ *                     format: date-time
+ *       401:
+ *         description: Unauthorized - JWT token required
+ */
 router.get('/survey/:surveyId', tokenController.getSurveyTokens.bind(tokenController));
 
-// Test email service (admin only)
+/**
+ * @swagger
+ * /tokens/test-email:
+ *   get:
+ *     summary: Test email service (admin only)
+ *     tags: [Tokens]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Email service test result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 available:
+ *                   type: boolean
+ *                   description: Whether email service is available
+ *                 smtpTested:
+ *                   type: boolean
+ *                   description: Whether SMTP connection was tested
+ *                 message:
+ *                   type: string
+ *                   description: Test result message
+ *       401:
+ *         description: Unauthorized - JWT token required
+ *       403:
+ *         description: Forbidden - Admin access required
+ */
 router.get('/test-email', verifyToken, requireAdmin, tokenController.testEmailService.bind(tokenController));
 
 export default router; 

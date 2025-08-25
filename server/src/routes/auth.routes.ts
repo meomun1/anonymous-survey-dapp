@@ -3,7 +3,46 @@ import { AuthService } from '../services/auth.service';
 
 const router = Router();
 
-// Admin login
+/**
+ * @swagger
+ * /auth/login:
+ *   post:
+ *     summary: Admin login
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: "admin@school.edu"
+ *               password:
+ *                 type: string
+ *                 example: "admin123"
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   description: JWT access token
+ *                 refreshToken:
+ *                   type: string
+ *                   description: JWT refresh token
+ *       401:
+ *         description: Authentication failed
+ */
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -14,7 +53,41 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Refresh token
+/**
+ * @swagger
+ * /auth/refresh:
+ *   post:
+ *     summary: Refresh JWT token
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Refresh token
+ *     responses:
+ *       200:
+ *         description: Token refreshed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   description: New JWT access token
+ *                 refreshToken:
+ *                   type: string
+ *                   description: New JWT refresh token
+ *       401:
+ *         description: Token refresh failed
+ */
 router.post('/refresh', async (req, res) => {
   try {
     const { token } = req.body;
