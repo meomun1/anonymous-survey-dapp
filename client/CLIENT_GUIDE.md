@@ -1,5 +1,11 @@
 # Anonymous Survey Client Project Guide
 
+> Note: This is a deep-dive guide. For day-to-day development, start with:
+> - Quickstart and APIs: see `client/CLIENT_README.md`
+> - Next.js routing and App Router concepts: see `client/NEXTJS_GUIDE.md`
+> - Backend endpoint reference (interactive): open Swagger at `/api-docs`
+
+
 ## 🎯 Project Overview
 
 This is the **frontend client application** for the Anonymous Survey System using blockchain and cryptographic techniques. It provides both **student interfaces** for anonymous survey participation and **admin interfaces** for survey management.
@@ -391,14 +397,16 @@ apiClient.interceptors.request.use((config) => {
 
 ### **API Endpoints Used**
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/auth/login` | POST | Admin authentication |
-| `/api/surveys` | GET, POST, PUT, DELETE | Survey CRUD operations |
-| `/api/surveys/{id}/tokens` | GET, POST | Token management |
-| `/api/tokens/validate` | POST | Student token validation |
-| `/api/crypto/blind-sign` | POST | Blind signature requests |
-| `/api/responses` | POST | Survey response submission |
+Note: Paths below are relative to `apiClient.baseURL` (which already includes `/api`, e.g. `http://localhost:3000/api`).
+
+| Path | Method | Purpose |
+|------|--------|---------|
+| `/auth/login` | POST | Admin authentication |
+| `/surveys` | GET, POST, PUT, DELETE | Survey CRUD operations |
+| `/tokens/survey/{surveyId}` | GET | Token management (list tokens for a survey) |
+| `/tokens/validate/{token}` | GET | Student token validation |
+| `/crypto/blind-sign/{surveyId}` | POST | Blind signature requests |
+| `/responses/submit-to-blockchain` | POST | Survey response submission |
 
 ## 🔍 Debugging & Troubleshooting
 

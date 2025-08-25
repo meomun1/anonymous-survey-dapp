@@ -79,6 +79,10 @@ npm run dev
 
 # Build for production deployment
 npm run build
+
+# API reference (interactive)
+# Backend must be running at http://localhost:3000
+open http://localhost:3000/api-docs
 ```
 
 ## Installation
@@ -190,7 +194,7 @@ npm run test:watch       # Run tests in watch mode
 npm run test:coverage    # Generate test coverage report
 ```
 
-## Project Structure
+## Project Structure (Source of Truth)
 ```
 client/
 ├── components/         # Reusable React components
@@ -225,6 +229,18 @@ client/
 - **ES2020 JavaScript** for modern language features
 - **WebAssembly** for high-performance cryptographic libraries
 - **LocalStorage** for temporary data storage
+
+## Common Tasks (Cheatsheet)
+
+- Create a survey (admin)
+  - Hook: `useSurveys().create(...)`
+  - API: `POST /surveys`
+- Generate tokens
+  - Hook: `useTokens()` then admin UI
+  - API: `POST /tokens/batch-generate`
+- Student participation
+  - Token page `/surveys/token` → validate → participate
+  - Crypto handled in `src/lib/crypto/blindSignatures.ts`
 
 ## Troubleshooting
 

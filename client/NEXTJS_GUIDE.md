@@ -45,7 +45,7 @@ src/app/
         └── page.tsx      → yoursite.com/products/anything
 ```
 
-## 📁 Our Project Structure Explained
+## 📁 Our Project Structure Explained (Essentials Only)
 
 ```
 client/
@@ -70,7 +70,7 @@ client/
     └── 📁 utils/           → Helper functions
 ```
 
-## 🗺️ Our Complete URL Mapping
+## 🗺️ URL Mapping (Key Routes)
 
 | File Path | Website URL | Purpose |
 |-----------|-------------|---------|
@@ -128,7 +128,7 @@ function SurveyCard({ title, description, responses }) {
 <SurveyCard title="Course Survey" description="Course feedback" responses={128} />
 ```
 
-## 🔧 Hooks - Custom React Logic
+## 🔧 Hooks - Custom React Logic (Where to Look)
 
 Hooks are **reusable functions** that handle complex logic and state management.
 
@@ -167,7 +167,8 @@ function AdminDashboard() {
 }
 ```
 
-## 📡 API Layer - Server Communication
+## 📡 API Layer - Server Communication (Pointer)
+See `client/CLIENT_README.md` for API usage and examples (single source of truth). Below is the minimal context:
 
 Located in `src/lib/api/`, these files contain functions that communicate with your backend server.
 
@@ -178,22 +179,25 @@ src/lib/api/
 └── tokens.ts        → Token API functions
 ```
 
-### How It Works:
+### Minimal Example
 
 ```typescript
 // surveys.ts contains:
 export const surveysApi = {
-  getAll: () => apiClient.get('/api/surveys'),
-  create: (data) => apiClient.post('/api/surveys', data),
-  update: (id, data) => apiClient.put(`/api/surveys/${id}`, data),
-  delete: (id) => apiClient.delete(`/api/surveys/${id}`)
+  // NOTE: apiClient.baseURL already includes "/api" (e.g. http://localhost:3000/api)
+  // so these paths are relative (no "/api" prefix here)
+  getAll: () => apiClient.get('/surveys'),
+  create: (data) => apiClient.post('/surveys', data),
+  update: (id, data) => apiClient.put(`/surveys/${id}`, data),
+  delete: (id) => apiClient.delete(`/surveys/${id}`)
 };
 
 // Used in hooks like:
 const { data: surveys } = await surveysApi.getAll();
 ```
 
-## 🔐 Cryptographic Operations
+## 🔐 Cryptographic Operations (Pointer)
+Details and usage notes live in `client/CLIENT_README.md`.
 
 ```
 src/lib/crypto/
