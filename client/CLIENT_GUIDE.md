@@ -263,8 +263,9 @@ client/
 2. Token verified → Redirect to survey participation
 3. Answer submitted → Crypto operations in browser
 4. Blinded signature → Request to school
-5. Final submission → Blockchain transaction
+5. Final submission → School may submit on-chain (ciphertexts cleared on publish)
 6. Confirmation → Completion page with proof
+7. Optional: Verify signature at /surveys/verify (inputs: surveyId, preparedMsg (base64), signature (base64))
 ```
 
 ## 🎨 User Interface Design
@@ -406,7 +407,7 @@ Note: Paths below are relative to `apiClient.baseURL` (which already includes `/
 | `/tokens/survey/{surveyId}` | GET | Token management (list tokens for a survey) |
 | `/tokens/validate/{token}` | GET | Student token validation |
 | `/crypto/blind-sign/{surveyId}` | POST | Blind signature requests |
-| `/responses/submit-to-blockchain` | POST | Survey response submission |
+| `/responses/submit-to-blockchain` | POST | Survey response submission (optional) |
 
 ## 🔍 Debugging & Troubleshooting
 

@@ -137,8 +137,13 @@ Students don't need to configure anything - they simply use the survey links pro
 3. **Secure Submission**
    - Generate cryptographic commitment for your answers
    - Create blinded message for anonymous verification
-   - Submit encrypted response to blockchain
+   - Submit response (school may submit on-chain; ciphertext is cleared on publish)
    - Receive confirmation and participation proof
+
+4. **Verify Your Response (Signature Only)**
+   - Go to `/surveys/verify`
+   - Enter `surveyId`, `preparedMsg (base64)`, `signature (base64)`
+   - The app fetches the survey public key and verifies locally
 
 ### Administrator Survey Management
 1. **Survey Creation**
@@ -152,8 +157,8 @@ Students don't need to configure anything - they simply use the survey links pro
    - Automatically send personalized emails with survey links
 
 3. **Monitoring & Analysis**
-   - Real-time participation tracking
-   - View response statistics and distributions
+   - Real-time participation tracking (Attendance at `/admin/surveys/{id}/attendance`)
+   - View response statistics and distributions (from DB)
    - Export data for further analysis
    - Verify survey integrity with cryptographic proofs
 

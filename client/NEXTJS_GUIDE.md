@@ -85,9 +85,11 @@ client/
 | `src/app/admin/surveys/create/page.tsx` | `/admin/surveys/create` | **Create new survey form** |
 | `src/app/admin/surveys/[id]/page.tsx` | `/admin/surveys/123` | **Survey details** (123 = survey ID) |
 | `src/app/admin/surveys/[id]/tokens/page.tsx` | `/admin/surveys/123/tokens` | **Token management for survey** |
+| `src/app/admin/surveys/[id]/attendance/page.tsx` | `/admin/surveys/123/attendance` | **Check attendance** |
 
 <!-- Student pages -->
 | `src/app/surveys/token/page.tsx` | `/surveys/token` | **Student enters token** |
+| `src/app/surveys/verify/page.tsx` | `/surveys/verify` | **Student verifies response (signature only)** |
 | `src/app/surveys/[id]/participate/page.tsx` | `/surveys/123/participate` | **Student takes survey** |
 | `src/app/surveys/[id]/completed/page.tsx` | `/surveys/123/completed` | **Survey completion confirmation** |
 | `src/app/surveys/[id]/results/page.tsx` | `/surveys/123/results` | **Public results verification** |

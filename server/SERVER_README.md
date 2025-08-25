@@ -330,18 +330,18 @@ curl -X GET http://localhost:3000/api/surveys/survey_12345/results
 // 3. Client gets survey public keys from server
 // 4. Client generates blinded message locally
 // 5. Client requests blind signature from server
-// 6. Client finalizes signature and submits to blockchain
-// 7. Server marks token as completed
+// 6. Client finalizes signature and submits (school may submit on-chain; ciphertext is not retained post-publish)
+// 7. Server marks token as completed and stores decrypted answer off-chain when processed
 ```
 
 ### 4. Result Processing & Verification
 ```javascript
 // After survey collection period:
-// 1. Server fetches encrypted responses from blockchain
-// 2. Server decrypts responses using private encryption key
-// 3. Server generates Merkle tree from response commitments
-// 4. Server publishes results with Merkle proof on blockchain
-// 5. Public can verify results using commitment verification
+// 1. Server decrypts and stores responses in DB (source of truth for display)
+// 2. Server generates Merkle root from commitments
+// 3. Server publishes results with Merkle root on-chain
+//    (smart contract clears on-chain encrypted_answers in publish_results)
+// 4. Public verifies results via commitments + Merkle root; UI reads distributions from DB
 ```
 
 ## Email Functionality
