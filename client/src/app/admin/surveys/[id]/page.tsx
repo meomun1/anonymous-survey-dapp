@@ -35,17 +35,24 @@ export default function SurveyDetailsPage({ params }: { params: { id: string } }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [publishLoading, setPublishLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const surveyId = params.id;
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     if (!isAuthenticated()) {
       router.push('/login');
       return;
     }
     loadSurveyData();
-  }, [surveyId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, surveyId]);
 
   const loadSurveyData = async () => {
     try {
@@ -54,8 +61,21 @@ export default function SurveyDetailsPage({ params }: { params: { id: string } }
         surveysApi.getById(surveyId),
         surveysApi.getStats(surveyId)
       ]);
-      
-      setSurvey(surveyResponse.data);
+
+      // Normalize survey shape (snake_case from API to camelCase used in UI)
+      const s: any = surveyResponse.data as any;
+      const normalized: Survey = {
+        id: s.id,
+        title: s.title,
+        description: s.description ?? '',
+        question: s.question ?? '',
+        totalResponses: s.totalResponses ?? s.total_responses ?? 0,
+        isPublished: s.isPublished ?? s.is_published ?? false,
+        createdAt: s.createdAt ?? s.created_at ?? new Date().toISOString(),
+        updatedAt: s.updatedAt ?? s.updated_at ?? new Date().toISOString(),
+      };
+
+      setSurvey(normalized);
       setStats(statsResponse.data);
     } catch (err: any) {
       console.error('Failed to load survey data:', err);
@@ -82,8 +102,15 @@ export default function SurveyDetailsPage({ params }: { params: { id: string } }
     }
   };
 
-  if (!isAuthenticated()) {
-    return null;
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full mx-auto"></div>
+          <p className="text-gray-600 mt-4">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
   if (loading) {
@@ -322,36 +349,44 @@ export default function SurveyDetailsPage({ params }: { params: { id: string } }
                 <h2 className="text-xl font-semibold text-gray-900">Quick Actions</h2>
               </div>
               <div className="p-6 space-y-3">
-                <Link
-                  href={`/admin/surveys/${surveyId}/tokens`}
-                  className="block w-full bg-purple-600 text-white text-center py-2 px-4 rounded-lg hover:bg-purple-700 transition-colors"
-                >
-                  Manage Tokens
-                </Link>
-                
                 {!survey.isPublished ? (
-                  <button
-                    onClick={handlePublishSurvey}
-                    disabled={publishLoading}
-                    className="block w-full bg-green-600 text-white text-center py-2 px-4 rounded-lg hover:bg-green-700 disabled:bg-green-400 transition-colors"
-                  >
-                    {publishLoading ? 'Publishing...' : 'Publish Results'}
-                  </button>
+                  <>
+                    <Link
+                      href={`/admin/surveys/${surveyId}/tokens`}
+                      className="block w-full bg-purple-600 text-white text-center py-2 px-4 rounded-lg hover:bg-purple-700 transition-colors"
+                    >
+                      Manage Tokens
+                    </Link>
+                    <button
+                      onClick={handlePublishSurvey}
+                      disabled={publishLoading}
+                      className="block w-full bg-green-600 text-white text-center py-2 px-4 rounded-lg hover:bg-green-700 disabled:bg-green-400 transition-colors"
+                    >
+                      {publishLoading ? 'Publishing...' : 'Publish Results'}
+                    </button>
+                    <Link
+                      href={`/admin/surveys/${surveyId}/responses`}
+                      className="block w-full bg-blue-600 text-white text-center py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      View Responses
+                    </Link>
+                  </>
                 ) : (
-                  <Link
-                    href={`/surveys/${surveyId}/results`}
-                    className="block w-full bg-emerald-600 text-white text-center py-2 px-4 rounded-lg hover:bg-emerald-700 transition-colors"
-                  >
-                    View Public Results
-                  </Link>
+                  <>
+                    <Link
+                      href={`/admin/surveys/${surveyId}/responses`}
+                      className="block w-full bg-blue-600 text-white text-center py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      View Responses
+                    </Link>
+                    <Link
+                      href={`/admin/surveys/${surveyId}/attendance`}
+                      className="block w-full bg-slate-700 text-white text-center py-2 px-4 rounded-lg hover:bg-slate-800 transition-colors"
+                    >
+                      Check Attendance
+                    </Link>
+                  </>
                 )}
-                
-                <Link
-                  href={`/admin/surveys/${surveyId}/responses`}
-                  className="block w-full bg-blue-600 text-white text-center py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  View Responses
-                </Link>
               </div>
             </div>
 
