@@ -11,6 +11,7 @@ import tokenRoutes from './routes/token.routes';
 import responseRoutes from './routes/response.routes';
 import cryptoRoutes from './routes/crypto.routes';
 import authRoutes from './routes/auth.routes';
+import publicResponseRoutes from './routes/publicResponse.routes';
 
 // Load environment variables
 dotenv.config();
@@ -58,7 +59,8 @@ app.get('/api-status', (req, res) => {
       surveys: '/api/surveys',
       tokens: '/api/tokens',
       crypto: '/api/crypto',
-      responses: '/api/responses'
+      responses: '/api/responses',
+      publicResponses: '/api/public-responses'
     },
     documentation: '/api-docs',
     health: '/health'
@@ -71,6 +73,7 @@ app.use('/api/surveys', surveyRoutes);
 app.use('/api/tokens', tokenRoutes);
 app.use('/api/responses', responseRoutes);
 app.use('/api/crypto', cryptoRoutes);
+app.use('/api/public-responses', publicResponseRoutes);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

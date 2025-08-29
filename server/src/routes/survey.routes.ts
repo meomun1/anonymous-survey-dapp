@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { SurveyController } from '../controllers/survey.controller';
+import { publicResponseController } from '../controllers/publicResponse.controller';
 
 const router = Router();
 const surveyController = new SurveyController();
@@ -157,6 +158,27 @@ router.get('/:id/stats', surveyController.getSurveyStats.bind(surveyController))
  *         description: Survey not found
  */
 router.get('/:id/results', surveyController.getSurveyResults.bind(surveyController));
+
+/**
+ * @swagger
+ * /surveys/{id}/public-results:
+ *   get:
+ *     summary: Get curated public results for a published survey
+ *     tags: [Surveys]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Survey ID
+ *     responses:
+ *       200:
+ *         description: Public curated results
+ *       404:
+ *         description: Public results not available
+ */
+router.get('/:id/public-results', publicResponseController.getPublicSurveyResults.bind(publicResponseController));
 
 /**
  * @swagger
