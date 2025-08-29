@@ -86,6 +86,7 @@ client/
 | `src/app/admin/surveys/[id]/page.tsx` | `/admin/surveys/123` | **Survey details** (123 = survey ID) |
 | `src/app/admin/surveys/[id]/tokens/page.tsx` | `/admin/surveys/123/tokens` | **Token management for survey** |
 | `src/app/admin/surveys/[id]/attendance/page.tsx` | `/admin/surveys/123/attendance` | **Check attendance** |
+| `src/app/admin/surveys/[id]/publication/page.tsx` | `/admin/surveys/123/publication` | **Manage public responses** |
 
 <!-- Student pages -->
 | `src/app/surveys/token/page.tsx` | `/surveys/token` | **Student enters token** |
@@ -93,6 +94,8 @@ client/
 | `src/app/surveys/[id]/participate/page.tsx` | `/surveys/123/participate` | **Student takes survey** |
 | `src/app/surveys/[id]/completed/page.tsx` | `/surveys/123/completed` | **Survey completion confirmation** |
 | `src/app/surveys/[id]/results/page.tsx` | `/surveys/123/results` | **Public results verification** |
+| `src/app/surveys/public/page.tsx` | `/surveys/public` | **Browse public surveys** |
+| `src/app/surveys/[id]/public/page.tsx` | `/surveys/123/public` | **View curated public results** |
 
 ## 🎨 Components - Reusable UI Building Blocks
 

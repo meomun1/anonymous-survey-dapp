@@ -145,6 +145,11 @@ Students don't need to configure anything - they simply use the survey links pro
    - Enter `surveyId`, `preparedMsg (base64)`, `signature (base64)`
    - The app fetches the survey public key and verifies locally
 
+5. **Public Survey Browsing**
+   - Browse curated survey results at `/surveys/public`
+   - View selected responses with positive/negative sentiment analysis
+   - Access detailed statistics and response insights
+
 ### Administrator Survey Management
 1. **Survey Creation**
    - Design survey with custom questions
@@ -161,6 +166,12 @@ Students don't need to configure anything - they simply use the survey links pro
    - View response statistics and distributions (from DB)
    - Export data for further analysis
    - Verify survey integrity with cryptographic proofs
+
+4. **Public Survey Management**
+   - Select specific responses to make public (Public Survey at `/admin/surveys/{id}/publication`)
+   - Mark responses as positive or negative for sentiment analysis
+   - Toggle public visibility for curated survey pages
+   - View positive/negative statistics for selected responses
 
 ## Security Features
 

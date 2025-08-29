@@ -185,6 +185,15 @@ GET  /api/responses/stats/:surveyId            # Get response statistics
 GET  /api/responses/verify/:responseId         # Verify response integrity
 ```
 
+### Public Response Management Endpoints
+```
+GET  /api/public-responses/survey/:surveyId/selection    # Get responses for admin selection
+POST /api/public-responses/survey/:surveyId              # Update public responses
+PUT  /api/public-responses/survey/:surveyId/visibility   # Toggle public survey visibility
+GET  /api/public-responses/survey/:surveyId/stats        # Get public response statistics
+GET  /api/surveys/:surveyId/public-results               # Get public survey results (public)
+```
+
 ## API Usage Examples
 
 ### 1. Survey Creation Flow (School Admin)
@@ -426,6 +435,7 @@ CREATE TABLE surveys (
   blockchain_address VARCHAR(255),
   is_published BOOLEAN DEFAULT FALSE,
   total_responses INTEGER DEFAULT 0,
+  is_public_enabled BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -459,6 +469,18 @@ CREATE TABLE survey_responses (
   commitment_hash VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Public responses for curated survey display
+CREATE TABLE public_responses (
+  id VARCHAR PRIMARY KEY,
+  survey_id VARCHAR REFERENCES surveys(id) ON DELETE CASCADE,
+  response_id VARCHAR REFERENCES survey_responses(id) ON DELETE CASCADE,
+  is_positive BOOLEAN NOT NULL,
+  published_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(survey_id, response_id)
 );
 ```
 
