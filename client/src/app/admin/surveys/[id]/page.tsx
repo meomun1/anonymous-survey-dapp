@@ -385,6 +385,12 @@ export default function SurveyDetailsPage({ params }: { params: { id: string } }
                     >
                       Check Attendance
                     </Link>
+                    <Link
+                      href={`/admin/surveys/${surveyId}/publication`}
+                      className="block w-full bg-indigo-600 text-white text-center py-2 px-4 rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      Public Survey
+                    </Link>
                   </>
                 )}
               </div>

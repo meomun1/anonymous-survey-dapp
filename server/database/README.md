@@ -25,6 +25,7 @@ The system uses **PostgreSQL** with the following tables:
 - `published_at`: Publication timestamp
 - `total_responses`: Count of responses
 - `blockchain_address`: Solana blockchain address
+- `is_public_enabled`: Whether curated public page is enabled (visibility toggle)
 - `created_at`, `updated_at`: Timestamps
 
 ### 2. `tokens` - Access tokens for students
@@ -44,7 +45,16 @@ The system uses **PostgreSQL** with the following tables:
 - `commitment_hash`: SHA-256 hash commitment (unique)
 - `created_at`, `updated_at`: Timestamps
 
-### 4. `survey_private_keys` - Cryptographic private keys
+### 4. `public_responses` - Curated responses for public page
+- `id`: Unique identifier
+- `survey_id`: Reference to survey
+- `response_id`: Reference to `survey_responses.id`
+- `is_positive`: Admin tag for sentiment (true = positive, false = negative)
+- `published_at`: When this response was made public
+- `created_at`, `updated_at`: Timestamps
+- Unique constraint on `(survey_id, response_id)`
+
+### 5. `survey_private_keys` - Cryptographic private keys
 - `id`: Unique identifier
 - `survey_id`: Reference to survey (unique)
 - `blind_signature_private_key`: RSA private key for blind signatures
@@ -55,25 +65,33 @@ The system uses **PostgreSQL** with the following tables:
 
 ### Option 1: Fresh Database Setup
 ```bash
-# Connect to PostgreSQL and create database
+# Create DB (if not exists)
 createdb anonymous_survey
 
-# Run initialization script
-psql -U your_username -d anonymous_survey -f init.sql
+# Initialize schema (drops nothing, creates objects if not exist)
+psql -d anonymous_survey -f /Users/nguyenluong/Developer/blockchain/pre/code/anonymous-survey-dapp/server/database/init.sql
 ```
 
-### Option 2: Update Existing Database
+### Option 2: Apply/Refresh Schema on Existing DB
 ```bash
-# Connect to existing database and run schema
-psql -U your_username -d your_database -f schema.sql
+# Apply (idempotent) schema definitions
+psql -d anonymous_survey -f /Users/nguyenluong/Developer/blockchain/pre/code/anonymous-survey-dapp/server/database/schema.sql
 ```
 
-### Option 3: Using Docker
+### Option 3: Full Reset (DROP ALL + Recreate)
+This will DELETE all data. Use when you need a clean slate after schema changes.
 ```bash
-# If using Docker Compose, the database will be created automatically
-# You can then run the schema manually:
-docker exec -i your_postgres_container psql -U your_user -d your_db < schema.sql
+# 1) Drop and recreate the database (macOS default Postgres)
+dropdb --if-exists anonymous_survey
+createdb anonymous_survey
+
+# 2) Run full initialization (creates tables, indexes, triggers)
+psql -d anonymous_survey -f /Users/nguyenluong/Developer/blockchain/pre/code/anonymous-survey-dapp/server/database/init.sql
 ```
+
+Notes:
+- If your Postgres requires a user, add `-U <username>` and, if needed, `-h <host>`.
+- Replace `anonymous_survey` if you use a different database name.
 
 ## Environment Variables
 
@@ -108,6 +126,7 @@ WHERE trigger_schema = 'public';
 \d surveys
 \d tokens
 \d survey_responses
+\d public_responses
 \d survey_private_keys
 ```
 
