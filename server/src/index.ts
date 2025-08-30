@@ -1,11 +1,13 @@
 import express from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 import { redisClient } from './config/redis';
 import { specs } from './config/swagger';
+import { corsMiddleware } from './config/cors';
+import { apiLimiter } from './config/rateLimit';
+import { errorHandler } from './utils/errorHandler';
 import surveyRoutes from './routes/survey.routes';
 import tokenRoutes from './routes/token.routes';
 import responseRoutes from './routes/response.routes';
@@ -20,10 +22,13 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(corsMiddleware);
 app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json());
+
+// Rate limiting
+app.use('/api', apiLimiter);
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
@@ -75,11 +80,8 @@ app.use('/api/responses', responseRoutes);
 app.use('/api/crypto', cryptoRoutes);
 app.use('/api/public-responses', publicResponseRoutes);
 
-// Error handling middleware
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
-});
+// Global error handling middleware
+app.use(errorHandler);
 
 // Start server
 app.listen(port, async () => {
