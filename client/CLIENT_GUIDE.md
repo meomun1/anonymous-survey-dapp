@@ -167,7 +167,7 @@ All cryptographic operations happen in the browser to ensure maximum privacy:
 "@cloudflare/blindrsa-ts": "^0.4.4",    // Blind signatures
 "@solana/web3.js": "^1.98.2",           // Blockchain integration
 "axios": "^1.9.0",                      // HTTP client
-"next": "14.2.0",                       // React framework
+"next": "14.1.0",                       // React framework
 "react": "^18",                         // UI library
 "tailwindcss": "^3.4.1"                 // CSS framework
 

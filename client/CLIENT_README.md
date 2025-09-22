@@ -71,8 +71,8 @@ The client application provides a user-friendly interface for students to partic
 npm install
 
 # Set up environment variables for your school
-cp .env.example .env
-# Edit .env with your school's configuration
+cp env.example .env.local
+# Edit .env.local with your school's configuration
 
 # Start development server
 npm run dev
@@ -97,7 +97,7 @@ cd client
 npm install
 
 # Set up environment variables
-cp .env.example .env
+cp env.example .env.local
 ```
 
 ## Configuration
@@ -144,6 +144,7 @@ Students don't need to configure anything - they simply use the survey links pro
    - Go to `/surveys/verify`
    - Enter `surveyId`, `preparedMsg (base64)`, `signature (base64)`
    - The app fetches the survey public key and verifies locally
+   - Get verification details from step 6 of the participation process
 
 5. **Public Survey Browsing**
    - Browse curated survey results at `/surveys/public`
@@ -162,7 +163,7 @@ Students don't need to configure anything - they simply use the survey links pro
    - Automatically send personalized emails with survey links
 
 3. **Monitoring & Analysis**
-   - Real-time participation tracking (Attendance at `/admin/surveys/{id}/attendance`)
+   - Real-time participation tracking at `/admin/surveys/{id}/attendance`
    - View response statistics and distributions (from DB)
    - Export data for further analysis
    - Verify survey integrity with cryptographic proofs

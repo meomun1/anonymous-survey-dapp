@@ -49,7 +49,7 @@ npm install
 
 # Set up environment variables
 cp env.txt .env
-# Edit .env with your configuration
+# Edit .env with your configuration (see env.txt for all required variables)
 
 # Setup database (using scripts in server/database)
 # Option A: Fresh database
@@ -192,6 +192,13 @@ POST /api/public-responses/survey/:surveyId              # Update public respons
 PUT  /api/public-responses/survey/:surveyId/visibility   # Toggle public survey visibility
 GET  /api/public-responses/survey/:surveyId/stats        # Get public response statistics
 GET  /api/surveys/:surveyId/public-results               # Get public survey results (public)
+```
+
+### Survey Management Endpoints (Enhanced)
+```
+GET    /api/surveys/:id/attendance              # Get survey attendance statistics
+GET    /api/surveys/:id/publication             # Get survey publication settings
+PUT    /api/surveys/:id/publication             # Update survey publication settings
 ```
 
 ## API Usage Examples

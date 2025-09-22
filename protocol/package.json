@@ -1,5 +1,5 @@
 {
-  "name": "protocol-test",
+  "name": "protocol",
   "version": "1.0.0",
   "description": "Simple implementation of Blind RSA protocol",
   "main": "dist/index.js",

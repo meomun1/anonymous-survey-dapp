@@ -23,6 +23,7 @@ This anonymous survey system is designed to collect feedback from students while
 
 - Students can provide honest feedback without fear of identification
 - Schools can verify participation without knowing who submitted which response
+- Students can verify their own response signatures independently
 - The public can verify survey results without compromising student privacy
 - All operations are transparent and verifiable on the blockchain
 - Individual student responses are encrypted on the blockchain and only accessible to the school
