@@ -133,189 +133,63 @@ server/
 
 ## REST API Documentation
 
-> Interactive API docs are available at `/api-docs` (Swagger UI). Quick status at `/api-status`.
+> **📚 Complete API Documentation**: See [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) for comprehensive endpoint details, request/response examples, and usage guides.
+> 
+> **🔧 Interactive API docs**: Available at `/api-docs` (Swagger UI) when server is running.
+> 
+> **📊 Quick status**: Available at `/api-status`.
 
-### Authentication Endpoints
-```
-POST /api/auth/login          # Admin login with email/password
-POST /api/auth/refresh        # Refresh JWT token
-```
+### Quick API Overview
 
-### Survey Management Endpoints
-```
-GET    /api/surveys                          # List all surveys with statistics
-POST   /api/surveys                          # Create new survey (auto-generates keys)
-PUT    /api/surveys/:id                      # Update survey (title/description/question)
-GET    /api/surveys/:id                      # Get survey details with tokens/responses
-GET    /api/surveys/:id/stats                # Get survey participation statistics
-GET    /api/surveys/:id/results              # Get published survey results
-GET    /api/surveys/:id/keys                 # Get survey public keys
-POST   /api/surveys/:id/publish-with-proof   # Publish survey with Merkle proof
-DELETE /api/surveys/:id                      # Delete survey and cleanup
-```
+The API includes the following endpoint groups:
 
-### Token Management Endpoints  
-```
-POST /api/tokens/batch-generate    # Generate tokens for students (admin only)
-GET  /api/tokens/validate/:token   # Validate if token can be used
-POST /api/tokens/:token/use        # Mark token as used (student starts survey)
-POST /api/tokens/:token/complete   # Mark token as completed (student finishes)
-GET  /api/tokens/survey/:surveyId  # Get all tokens for a survey
-GET  /api/tokens/test-email        # Test SMTP connection (admin only)
-```
+- **System**: `/health`, `/api-status`, `/api-docs`
+- **Authentication**: `/api/auth/*` (login, refresh)
+- **Surveys**: `/api/surveys/*` (CRUD, stats, results, keys, publishing)
+- **Tokens**: `/api/tokens/*` (generation, validation, management)
+- **Responses**: `/api/responses/*` (submission, decryption, verification)
+- **Cryptography**: `/api/crypto/*` (blind signatures, commitments, keys)
+- **Public Responses**: `/api/public-responses/*` (curation, visibility)
 
-### Cryptographic Operations Endpoints
-```
-POST /api/crypto/blind-sign/:surveyId      # Generate blind signature
-POST /api/crypto/verify-commitment         # Verify answer commitment
-POST /api/crypto/decrypt-response          # Decrypt individual response
-GET  /api/crypto/public-keys/:surveyId     # Get survey public keys
-POST /api/crypto/generate-commitment       # Generate commitment hash
-POST /api/crypto/bulk-verify-commitments   # Verify multiple commitments
-```
+**Total Endpoints**: 35+ endpoints across 7 main categories
 
-### Response Endpoints
-```
-POST /api/responses/blind-sign/:surveyId       # Generate blind signature (response flow)
-POST /api/responses/submit-to-blockchain       # Submit encrypted response to blockchain
-POST /api/responses/decrypt-all/:surveyId      # Decrypt all responses for a survey
-GET  /api/responses/survey/:surveyId           # List responses for a survey
-GET  /api/responses/commitment/:commitmentHash # Get response by commitment hash
-GET  /api/responses/stats/:surveyId            # Get response statistics
-GET  /api/responses/verify/:responseId         # Verify response integrity
-```
+## Quick Start Examples
 
-### Public Response Management Endpoints
-```
-GET  /api/public-responses/survey/:surveyId/selection    # Get responses for admin selection
-POST /api/public-responses/survey/:surveyId              # Update public responses
-PUT  /api/public-responses/survey/:surveyId/visibility   # Toggle public survey visibility
-GET  /api/public-responses/survey/:surveyId/stats        # Get public response statistics
-GET  /api/surveys/:surveyId/public-results               # Get public survey results (public)
-```
-
-### Survey Management Endpoints (Enhanced)
-```
-GET    /api/surveys/:id/attendance              # Get survey attendance statistics
-GET    /api/surveys/:id/publication             # Get survey publication settings
-PUT    /api/surveys/:id/publication             # Update survey publication settings
-```
-
-## API Usage Examples
-
-### 1. Survey Creation Flow (School Admin)
-
-#### Create Survey
+### Basic Survey Creation Flow
 ```bash
-curl -X POST http://localhost:3000/api/surveys \
+# 1. Login
+JWT_TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "title": "Course Feedback Survey", 
-    "description": "Anonymous feedback for CS101",
-    "question": "How would you rate this course?"
-  }'
-```
+  -d '{"email":"admin@school.edu","password":"admin123"}' | jq -r '.token')
 
-**Response:**
-```json
-{
-  "id": "survey_12345",
-  "title": "Course Feedback Survey",
-  "description": "Anonymous feedback for CS101", 
-  "question": "How would you rate this course?",
-  "blindSignaturePublicKey": "base64_encoded_public_key",
-  "encryptionPublicKey": "base64_encoded_public_key",
-  "blockchainAddress": "blockchain_pda_address",
-  "isPublished": false,
-  "createdAt": "2024-01-15T10:30:00Z"
-}
-```
+# 2. Create Survey
+SURVEY_ID=$(curl -s -X POST http://localhost:3000/api/surveys \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -d '{"title":"Course Feedback","description":"CS101","question":"Rate this course"}' | jq -r '.id')
 
-#### Generate Student Tokens
-```bash
+# 3. Generate Tokens
 curl -X POST http://localhost:3000/api/tokens/batch-generate \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "surveyId": "survey_12345",
-    "students": [
-      {"email": "student1@university.edu"},
-      {"email": "student2@university.edu"}
-    ]
-  }'
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -d '{"surveyId":"'"$SURVEY_ID"'","students":[{"email":"student@university.edu"}]}'
 ```
 
-### 2. Student Participation Flow
-
-#### Validate Token
+### Student Participation Flow
 ```bash
-curl -X GET "http://localhost:3000/api/tokens/validate/token_abc123?surveyId=survey_12345"
-```
+# 1. Validate Token
+curl -X GET "http://localhost:3000/api/tokens/validate/abc123?surveyId=survey_12345"
 
-#### Get Survey Public Keys
-```bash
+# 2. Get Public Keys
 curl -X GET http://localhost:3000/api/surveys/survey_12345/keys
-```
 
-**Response:**
-```json
-{
-  "blindSignaturePublicKey": "base64_encoded_blind_signature_public_key",
-  "encryptionPublicKey": "base64_encoded_encryption_public_key"
-}
-```
-
-#### Request Blind Signature
-```bash
+# 3. Request Blind Signature
 curl -X POST http://localhost:3000/api/crypto/blind-sign/survey_12345 \
   -H "Content-Type: application/json" \
-  -d '{
-    "blindedMessage": "base64_encoded_blinded_message"
-  }'
+  -d '{"blindedMessage":"base64-encoded-message"}'
 ```
 
-**Response:**
-```json
-{
-  "blindSignature": "base64_encoded_blind_signature"
-}
-```
-
-### 3. Survey Results and Verification
-
-#### Publish Survey Results
-```bash
-curl -X POST http://localhost:3000/api/surveys/survey_12345/publish-with-proof \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-#### Get Published Results
-```bash
-curl -X GET http://localhost:3000/api/surveys/survey_12345/results
-```
-
-**Response:**
-```json
-{
-  "surveyId": "survey_12345",
-  "title": "Course Feedback Survey",
-  "totalResponses": 25,
-  "isPublished": true,
-  "publishedAt": "2024-01-20T15:45:00Z",
-  "merkleRoot": "hex_encoded_merkle_root",
-  "answerDistribution": {
-    "Excellent": 8,
-    "Good": 12,
-    "Average": 4,
-    "Poor": 1
-  },
-  "verificationData": {
-    "commitmentHashes": ["hash1", "hash2", "..."],
-    "blockchainAddress": "survey_pda_address"
-  }
-}
-```
+> **📚 For detailed examples and complete API reference**: See [API_DOCUMENTATION.md](./API_DOCUMENTATION.md)
 
 ## System Architecture Flow
 

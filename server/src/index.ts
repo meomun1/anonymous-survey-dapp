@@ -92,7 +92,7 @@ app.listen(port, async () => {
 
     console.log(`Server is running on port ${port}`);
     console.log(`Health check available at: http://localhost:${port}/health`);
-    console.log(`API documentation available at: README.md`);
+    console.log(`API documentation available at: /api-docs`);
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
