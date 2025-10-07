@@ -40,3 +40,17 @@ button {
 .admin-text {
   color: #171717;
 }
+
+/* Custom animations for modern landing page */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}

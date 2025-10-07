@@ -5,7 +5,8 @@ export interface Survey {
   id: string;
   title: string;
   description: string;
-  question: string;
+  templateId: string;
+  totalQuestions: number;
   totalResponses: number;
   isPublished: boolean;
   createdAt: string;
@@ -15,7 +16,7 @@ export interface Survey {
 export interface CreateSurveyData {
   title: string;
   description: string;
-  question: string;
+  templateId?: string;
 }
 
 export const surveysApi = {
@@ -40,16 +41,21 @@ export const surveysApi = {
   
   getResults: (id: string): Promise<AxiosResponse<{
     surveyId: string;
+    shortId: string;
     title: string;
+    templateId: string;
+    totalQuestions: number;
     totalResponses: number;
     isPublished: boolean;
     publishedAt: string | null;
     merkleRoot: string | null;
-    answerDistribution: Record<string, number>;
-    verificationData: {
-      commitmentHashes: string[];
-      blockchainAddress: string;
+    questionStatistics: Record<number, Record<number, number>>;
+    overallStatistics: {
+      averageScore: number;
+      totalResponses: number;
+      scoreDistribution: Record<number, number>;
     };
+    answerDistribution: Record<number, Record<number, number>>;
   }>> => apiClient.get(`/surveys/${id}/results`),
   
   getStats: (id: string): Promise<AxiosResponse<{
