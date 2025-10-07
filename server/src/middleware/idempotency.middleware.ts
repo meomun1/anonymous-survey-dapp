@@ -35,7 +35,7 @@ export const idempotencyMiddleware = async (
     }
 
     // Store the idempotency key for 24 hours
-    await redisClient.setex(`idempotency:${idempotencyKey}`, 86400, 'processing');
+    await redisClient.setEx(`idempotency:${idempotencyKey}`, 86400, 'processing');
     
     // Add the key to the request for later use
     req.idempotencyKey = idempotencyKey;
@@ -58,7 +58,7 @@ export const cacheIdempotentResponse = async (
 ) => {
   try {
     const response = JSON.stringify({ status, data });
-    await redisClient.setex(`idempotency:${idempotencyKey}`, 86400, response);
+    await redisClient.setEx(`idempotency:${idempotencyKey}`, 86400, response);
   } catch (error) {
     console.error('Failed to cache idempotent response:', error);
   }
