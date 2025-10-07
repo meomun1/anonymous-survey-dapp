@@ -13,7 +13,8 @@ interface Survey {
   id: string;
   title: string;
   description: string;
-  question: string;
+  templateId: string;
+  totalQuestions: number;
   totalResponses: number;
   isPublished: boolean;
   createdAt: string;
@@ -86,38 +87,58 @@ export default function SurveysManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-700 via-purple-600 to-slate-700">
+      {/* Animated Background */}
+      <div className="absolute inset-0 opacity-25 -z-10">
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-400/8 to-purple-400/8"></div>
+        <div className="absolute inset-0" style={{
+          backgroundImage: `radial-gradient(circle at 25% 25%, rgba(147, 51, 234, 0.12) 0%, transparent 50%), radial-gradient(circle at 75% 75%, rgba(59, 130, 246, 0.12) 0%, transparent 50%)`
+        }}></div>
+      </div>
       {/* Header */}
-      <header className="bg-white shadow">
+      <header className="relative z-50 shadow-lg" style={{background: 'linear-gradient(to right, #E5CDF5, #D4A5F0)'}}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Survey Management
-              </h1>
-              <p className="text-gray-600">
-                View, edit, and manage all surveys
-              </p>
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center space-x-3">
+              <div className="bg-purple-200 backdrop-blur-sm rounded-full p-2">
+                <svg className="w-6 h-6 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-purple-600">
+                  Survey Management
+                </h1>
+                <p className="text-purple-600 text-sm">
+                  View, edit, and manage all surveys
+                </p>
+              </div>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-3">
               <Link
                 href="/admin/surveys/create"
-                className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                className="bg-white text-green-600 hover:bg-green-50 border border-white/30 px-3 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 text-sm font-medium shadow-sm"
               >
-                Create New Survey
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                <span>Create New Survey</span>
               </Link>
               <Link
                 href="/admin"
-                className="text-gray-600 hover:text-gray-900 transition-colors"
+                className="bg-white/90 text-gray-600 hover:bg-white border border-white/50 px-3 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 text-sm font-medium shadow-sm"
               >
-                ← Back to Dashboard
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                <span>Back to Dashboard</span>
               </Link>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
             <p className="text-red-800">{error}</p>
@@ -146,117 +167,99 @@ export default function SurveysManagementPage() {
         ) : (
           <div className="space-y-6">
             {/* Survey Statistics */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Overview</h2>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
-                <div>
-                  <div className="text-2xl font-bold text-gray-900">{surveys.length}</div>
-                  <div className="text-sm text-gray-600">Total Surveys</div>
-                </div>
-                <div>
-                  <div className="text-2xl font-bold text-orange-600">
-                    {surveys.filter(s => !s.isPublished).length}
+            <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+              <div className="bg-gradient-to-r from-gray-50 to-blue-50 px-6 py-4 border-b border-gray-200">
+                <h2 className="text-xl font-bold text-gray-900">Survey Overview</h2>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="text-center bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
+                    <div className="text-3xl font-bold text-blue-600 mb-2">{surveys.length}</div>
+                    <div className="text-sm font-medium text-blue-800">Total Surveys</div>
+                    <div className="text-xs text-blue-600 mt-1">All created surveys</div>
                   </div>
-                  <div className="text-sm text-gray-600">Draft Surveys</div>
-                </div>
-                <div>
-                  <div className="text-2xl font-bold text-green-600">
-                    {surveys.filter(s => s.isPublished).length}
+                  <div className="text-center bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-6 border border-orange-200">
+                    <div className="text-3xl font-bold text-orange-600 mb-2">
+                      {surveys.filter(s => !s.isPublished).length}
+                    </div>
+                    <div className="text-sm font-medium text-orange-800">Draft Surveys</div>
+                    <div className="text-xs text-orange-600 mt-1">Ready to publish</div>
                   </div>
-                  <div className="text-sm text-gray-600">Published Surveys</div>
-                </div>
-                <div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    {surveys.reduce((total, s) => total + s.totalResponses, 0)}
+                  <div className="text-center bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
+                    <div className="text-3xl font-bold text-green-600 mb-2">
+                      {surveys.filter(s => s.isPublished).length}
+                    </div>
+                    <div className="text-sm font-medium text-green-800">Published Surveys</div>
+                    <div className="text-xs text-green-600 mt-1">Live and active</div>
                   </div>
-                  <div className="text-sm text-gray-600">Total Responses</div>
                 </div>
               </div>
             </div>
 
             {/* Surveys List */}
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h2 className="text-xl font-semibold text-gray-900">All Surveys</h2>
+            <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+              <div className="bg-gradient-to-r from-gray-50 to-blue-50 px-6 py-4 border-b border-gray-200">
+                <h2 className="text-xl font-bold text-gray-900">All Surveys</h2>
               </div>
-              <div className="divide-y divide-gray-200">
+              <div className="divide-y divide-gray-100">
                 {surveys.map((survey) => (
-                  <div key={survey.id} className="p-6">
-                    <div className="flex items-center justify-between">
+                  <div key={survey.id} className="p-6 hover:bg-gray-50 transition-colors">
+                    <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center space-x-3 mb-2">
-                          <h3 className="text-lg font-semibold text-gray-900">
+                          <h3 className="text-lg font-bold text-gray-900">
                             {survey.title}
                           </h3>
-                          <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                             survey.isPublished 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-yellow-100 text-yellow-800'
+                              ? 'bg-green-100 text-green-800 border border-green-200' 
+                              : 'bg-yellow-100 text-yellow-800 border border-yellow-200'
                           }`}>
                             {survey.isPublished ? 'Published' : 'Draft'}
                           </span>
                         </div>
                         
-                        <p className="text-gray-600 mb-2">
+                        <p className="text-gray-600 mb-3 text-sm">
                           {survey.description || 'No description provided'}
                         </p>
                         
-                        <div className="text-sm text-gray-500 mb-3">
-                          <strong>Question:</strong> {survey.question}
-                        </div>
-                        
-                        <div className="flex items-center space-x-6 text-sm text-gray-500">
-                          <span>
-                            <strong>{survey.totalResponses}</strong> responses
+                        <div className="flex items-center space-x-4 text-sm text-gray-500">
+                          <span className="flex items-center space-x-1">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>{survey.templateId} • {survey.totalQuestions} questions</span>
                           </span>
-                          <span>
-                            Created {new Date(survey.createdAt).toLocaleDateString()}
-                          </span>
-                          <span>
-                            Updated {new Date(survey.updatedAt).toLocaleDateString()}
+                          <span className="flex items-center space-x-1">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span>{new Date(survey.createdAt).toLocaleDateString()}</span>
                           </span>
                         </div>
                       </div>
                       
-                      <div className="flex items-center space-x-3 ml-6">
+                      <div className="flex items-center space-x-2 ml-4">
                         <Link
                           href={`/admin/surveys/${survey.id}`}
-                          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                          className="bg-blue-600/90 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm flex items-center space-x-2"
                         >
-                          View Details
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                          <span>View</span>
                         </Link>
-                        
-                        <Link
-                          href={`/admin/surveys/${survey.id}/tokens`}
-                          className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors text-sm"
-                        >
-                          Manage Tokens
-                        </Link>
-                        
-                        {!survey.isPublished && (
-                          <button
-                            onClick={() => handlePublishSurvey(survey.id)}
-                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
-                          >
-                            Publish Results
-                          </button>
-                        )}
-                        
-                        {survey.isPublished && (
-                          <Link
-                            href={`/surveys/${survey.id}/results`}
-                            className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors text-sm"
-                          >
-                            View Results
-                          </Link>
-                        )}
                         
                         <button
                           onClick={() => handleDeleteSurvey(survey.id)}
                           disabled={deleteLoading === survey.id}
-                          className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:bg-red-400 transition-colors text-sm"
+                          className="bg-red-600/90 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:bg-red-400 transition-colors text-sm font-medium shadow-sm flex items-center space-x-2"
                         >
-                          {deleteLoading === survey.id ? 'Deleting...' : 'Delete'}
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          <span>{deleteLoading === survey.id ? 'Deleting...' : 'Delete'}</span>
                         </button>
                       </div>
                     </div>

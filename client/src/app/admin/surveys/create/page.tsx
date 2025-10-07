@@ -5,17 +5,16 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { surveysApi } from '@/lib/api/surveys';
+import { SurveyForm } from '@/components/survey/SurveyForm';
 
 // Force dynamic rendering for authenticated pages
 export const dynamic = 'force-dynamic';
 
 export default function CreateSurveyPage() {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [mounted, setMounted] = useState(false);
+  const [title, setTitle] = useState('');
   const router = useRouter();
   const { isAuthenticated } = useAuth();
 
@@ -45,25 +44,12 @@ export default function CreateSurveyPage() {
     return null; // Will redirect to login
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!title.trim() || !question.trim()) {
-      setError('Please provide both a title and question for the survey');
-      return;
-    }
-
+  const handleSubmit = async (data: any) => {
     setLoading(true);
     setError('');
 
     try {
-      const surveyData = {
-        title: title.trim(),
-        description: description.trim() || '',
-        question: question.trim()
-      };
-
-      const response = await surveysApi.create(surveyData);
+      const response = await surveysApi.create(data);
       const survey = response.data;
 
       // Redirect to the survey management page
@@ -81,154 +67,102 @@ export default function CreateSurveyPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50">
+         return (
+           <div className="min-h-screen bg-gradient-to-br from-slate-700 via-purple-600 to-slate-700">
+             {/* Animated Background */}
+             <div className="absolute inset-0 opacity-25 -z-10">
+               <div className="absolute inset-0 bg-gradient-to-br from-blue-400/8 to-purple-400/8"></div>
+               <div className="absolute inset-0" style={{
+                 backgroundImage: `radial-gradient(circle at 25% 25%, rgba(147, 51, 234, 0.12) 0%, transparent 50%), radial-gradient(circle at 75% 75%, rgba(59, 130, 246, 0.12) 0%, transparent 50%)`
+               }}></div>
+             </div>
       {/* Header */}
-      <header className="bg-white shadow">
+      <header className="relative z-50 shadow-lg" style={{background: 'linear-gradient(to right, #E5CDF5, #D4A5F0)'}}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Create New Survey
-              </h1>
-              <p className="text-gray-600">
-                Design an anonymous survey with cryptographic privacy
-              </p>
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center space-x-3">
+              <div className="bg-white/20 backdrop-blur-sm rounded-full p-2">
+                <svg className="w-6 h-6 text-purple-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-purple-600">
+                  Create New Survey
+                </h1>
+                <p className="text-purple-600 text-sm">
+                  Design an anonymous survey with cryptographic privacy
+                </p>
+              </div>
             </div>
-            <Link
-              href="/admin"
-              className="text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              ← Back to Dashboard
-            </Link>
+            <div className="flex items-center space-x-3">
+              <Link
+                href="/admin"
+                className="bg-white text-gray-600 hover:bg-gray-50 border border-white/30 px-3 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 text-sm font-medium shadow-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                <span>Back to Dashboard</span>
+              </Link>
+              
+              <button
+                type="button"
+                onClick={() => document.querySelector('form')?.requestSubmit()}
+                disabled={loading || !title.trim()}
+                className="bg-white text-blue-600 hover:bg-blue-50 border border-white/30 px-3 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Creating...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    <span>Create Survey</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">Survey Details</h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Provide the basic information for your anonymous survey
-            </p>
+             <main className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+
+
+        <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+          <div className="bg-gradient-to-r from-gray-50 to-blue-50 px-6 py-4 border-b border-gray-200">
+            <div className="flex items-center space-x-3">
+              <div className="bg-blue-100 rounded-lg p-2">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Survey Configuration</h2>
+                <p className="text-gray-600 text-sm">
+                  Configure your survey with the teaching quality assurance template
+                </p>
+              </div>
+            </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="p-6 space-y-6">
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <p className="text-red-800 text-sm">{error}</p>
-              </div>
-            )}
+          <div className="p-4">
+            <SurveyForm
+              onSubmit={handleSubmit}
+              loading={loading}
+              error={error}
+              onTitleChange={setTitle}
+            />
 
-            <div>
-              <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
-                Survey Title *
-              </label>
-              <input
-                id="title"
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g., Course Feedback Survey - CS101"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                required
-                disabled={loading}
-                maxLength={255}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Choose a clear, descriptive title for your survey
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
-                Description
-              </label>
-              <textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Optional: Provide additional context about this survey"
-                rows={3}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                disabled={loading}
-                maxLength={1000}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Optional description to provide context to participants
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="question" className="block text-sm font-medium text-gray-700 mb-2">
-                Survey Question *
-              </label>
-              <textarea
-                id="question"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder="e.g., How would you rate your overall experience with this course?"
-                rows={4}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                required
-                disabled={loading}
-                maxLength={2000}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                The main question participants will answer. Keep it clear and specific.
-              </p>
-            </div>
-
-            {/* Privacy Information */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="text-sm font-semibold text-blue-800 mb-2">🔒 Privacy & Security Features</h3>
-              <ul className="text-xs text-blue-700 space-y-1">
-                <li>• RSA-2048 cryptographic keys will be automatically generated</li>
-                <li>• Student responses will be encrypted before blockchain storage</li>
-                <li>• Blind signatures ensure complete participant anonymity</li>
-                <li>• Survey results are verifiable but responses remain private</li>
-              </ul>
-            </div>
-
-            {/* System Information */}
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <h3 className="text-sm font-semibold text-gray-800 mb-2">📋 What Happens Next</h3>
-              <ol className="text-xs text-gray-700 space-y-1">
-                <li>1. Survey is created with automatic cryptographic key generation</li>
-                <li>2. Survey metadata is stored on Solana blockchain</li>
-                <li>3. You can generate and distribute tokens to participants</li>
-                <li>4. Collect anonymous responses with cryptographic proofs</li>
-                <li>5. Publish verifiable results with Merkle tree proofs</li>
-              </ol>
-            </div>
-
-            <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
-              <Link
-                href="/admin"
-                className="px-6 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </Link>
-              <button
-                type="submit"
-                disabled={loading || !title.trim() || !question.trim()}
-                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
-              >
-                {loading ? (
-                  <span className="flex items-center">
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Creating Survey...
-                  </span>
-                ) : (
-                  'Create Survey'
-                )}
-              </button>
-            </div>
-          </form>
+          </div>
         </div>
       </main>
     </div>

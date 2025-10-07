@@ -42,24 +42,6 @@ export default function SurveyCompletedPage({ params }: { params: { id: string }
           </p>
         </div>
 
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-          <h3 className="font-semibold text-green-800 mb-2">✅ What Happened</h3>
-          <ul className="text-sm text-green-700 text-left space-y-1">
-            <li>• Your response was encrypted and stored on blockchain</li>
-            <li>• Your anonymity is cryptographically guaranteed</li>
-            <li>• A verification proof was downloaded to your device</li>
-            <li>• Your token has been marked as completed</li>
-          </ul>
-        </div>
-
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <h3 className="font-semibold text-blue-800 mb-2">🔐 Privacy Assurance</h3>
-          <p className="text-sm text-blue-700 text-left">
-            Your response cannot be linked back to you, even by administrators. 
-            The blockchain ensures tamper-proof storage while maintaining complete anonymity.
-          </p>
-        </div>
-
         <div className="space-y-4">
           <button
             onClick={() => router.push('/')}

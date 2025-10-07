@@ -7,16 +7,21 @@ import { surveysApi } from '@/lib/api/surveys';
 
 interface SurveyResults {
   surveyId: string;
+  shortId: string;
   title: string;
+  templateId: string;
+  totalQuestions: number;
   totalResponses: number;
   isPublished: boolean;
   publishedAt: string | null;
   merkleRoot: string | null;
-  answerDistribution: Record<string, number>;
-  verificationData?: {
-    commitmentHashes?: string[];
-    blockchainAddress?: string;
+  questionStatistics: Record<number, Record<number, number>>;
+  overallStatistics: {
+    averageScore: number;
+    totalResponses: number;
+    scoreDistribution: Record<number, number>;
   };
+  answerDistribution: Record<number, Record<number, number>>;
 }
 
 export default function PublicResultsPage({ params }: { params: { id: string } }) {
@@ -122,7 +127,7 @@ export default function PublicResultsPage({ params }: { params: { id: string } }
     );
   }
 
-  const totalResponses = Object.values(results.answerDistribution).reduce((sum, count) => sum + count, 0);
+  const totalResponses = results.totalResponses;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -205,29 +210,38 @@ export default function PublicResultsPage({ params }: { params: { id: string } }
               </div>
               <div className="p-6">
                 <div className="space-y-4">
-                  {Object.entries(results.answerDistribution)
-                    .sort(([, a], [, b]) => b - a)
-                    .map(([answer, count]) => {
-                      const percentage = ((count / totalResponses) * 100).toFixed(1);
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-blue-600 mb-2">
+                      {results.overallStatistics.averageScore.toFixed(2)}
+                    </div>
+                    <div className="text-gray-600">Average Score</div>
+                  </div>
+                  <div className="space-y-3">
+                    {[1, 2, 3, 4, 5].map((score) => {
+                      const count = results.overallStatistics.scoreDistribution[score] || 0;
+                      const percentage = totalResponses > 0 ? (count / totalResponses) * 100 : 0;
+                      const labels = ['Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
+                      
                       return (
-                        <div key={answer} className="space-y-2">
+                        <div key={score} className="space-y-2">
                           <div className="flex justify-between">
                             <span className="text-sm font-medium text-gray-900">
-                              {answer.length > 100 ? `${answer.substring(0, 100)}...` : answer}
+                              {labels[score - 1]} ({score})
                             </span>
                             <span className="text-sm text-gray-600">
-                              {count} ({percentage}%)
+                              {count} ({percentage.toFixed(1)}%)
                             </span>
                           </div>
                           <div className="w-full bg-gray-200 rounded-full h-2">
                             <div 
-                              className="bg-blue-600 h-2 rounded-full" 
+                              className="bg-blue-600 h-2 rounded-full"
                               style={{ width: `${percentage}%` }}
                             ></div>
                           </div>
                         </div>
                       );
                     })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -245,16 +259,16 @@ export default function PublicResultsPage({ params }: { params: { id: string } }
                   </code>
                 </div>
                 
-                {results.verificationData?.blockchainAddress ? (
+                {results.merkleRoot ? (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Blockchain Address</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Merkle Root</label>
                     <code className="block text-sm bg-gray-100 p-3 rounded-lg break-all">
-                      {results.verificationData.blockchainAddress}
+                      {results.merkleRoot}
                     </code>
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Blockchain Address</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Merkle Root</label>
                     <p className="text-sm text-gray-600">Not available</p>
                   </div>
                 )}
@@ -262,7 +276,7 @@ export default function PublicResultsPage({ params }: { params: { id: string } }
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Total Commitments</label>
                   <p className="text-sm text-gray-900">
-                    {(results.verificationData?.commitmentHashes?.length ?? 0)} cryptographic commitments verified
+                    {results.totalResponses} cryptographic commitments verified
                   </p>
                 </div>
               </div>
@@ -368,18 +382,6 @@ export default function PublicResultsPage({ params }: { params: { id: string } }
                   <li>3. Verify the merkle root matches</li>
                   <li>4. Check individual response commitments</li>
                 </ol>
-                {results.verificationData?.blockchainAddress && (
-                  <div className="mt-4">
-                    <a
-                      href={`https://explorer.solana.com/address/${results.verificationData.blockchainAddress}?cluster=devnet`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                    >
-                      View on Blockchain Explorer
-                    </a>
-                  </div>
-                )}
               </div>
             </div>
           </div>
