@@ -6,12 +6,12 @@ const surveyService = new SurveyService();
 export class SurveyController {
   async createSurvey(req: Request, res: Response) {
     try {
-      const { title, description, question } = req.body;
+      const { title, description, templateId } = req.body;
       
       const survey = await surveyService.createSurvey({
         title,
         description,
-        question,
+        templateId,
       });
 
       res.status(201).json(survey);
@@ -76,12 +76,12 @@ export class SurveyController {
   async updateSurvey(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const { title, description, question } = req.body;
+      const { title, description, templateId } = req.body;
       
       const survey = await surveyService.updateSurvey(id, {
         title,
         description,
-        question,
+        templateId,
       });
   
       res.json(survey);
@@ -101,9 +101,10 @@ export class SurveyController {
       if (error.message === 'Survey not found') {
         return res.status(404).json({ error: 'Survey not found' });
       }
-      if (error.message === 'Survey is not yet published') {
-        return res.status(400).json({ error: 'Survey is not yet published' });
-      }
+      // Allow viewing unpublished survey results for admin
+      // if (error.message === 'Survey is not yet published') {
+      //   return res.status(400).json({ error: 'Survey is not yet published' });
+      // }
       res.status(500).json({ error: 'Failed to get survey results' });
     }
   }
@@ -140,6 +141,23 @@ export class SurveyController {
         return res.status(404).json({ error: 'Survey not found' });
       }
       res.status(500).json({ error: 'Failed to get survey public keys' });
+    }
+  }
+
+  async processResponses(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const result = await surveyService.processResponsesFromBlockchain(id);
+      res.json(result);
+    } catch (error: any) {
+      console.error('Failed to process responses:', error);
+      if (error.message === 'Survey not found') {
+        return res.status(404).json({ error: 'Survey not found' });
+      }
+      if (error.message === 'No encrypted responses found on blockchain') {
+        return res.status(404).json({ error: 'No responses found on blockchain' });
+      }
+      res.status(500).json({ error: 'Failed to process responses from blockchain' });
     }
   }
 } 

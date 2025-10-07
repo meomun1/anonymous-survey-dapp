@@ -203,6 +203,31 @@ router.get('/:id/keys', surveyController.getSurveyPublicKeys.bind(surveyControll
 
 /**
  * @swagger
+ * /surveys/{id}/process-responses:
+ *   post:
+ *     summary: Process responses from blockchain
+ *     tags: [Surveys]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Survey ID
+ *     responses:
+ *       200:
+ *         description: Responses processed successfully
+ *       401:
+ *         description: Unauthorized - JWT token required
+ *       404:
+ *         description: Survey not found or no responses on blockchain
+ */
+router.post('/:id/process-responses', surveyController.processResponses.bind(surveyController));
+
+/**
+ * @swagger
  * /surveys/{id}/publish-with-proof:
  *   post:
  *     summary: Publish survey results with Merkle proof

@@ -42,13 +42,13 @@ export class SurveyService {
 
   /**
    * Create a new survey with automatic key generation
-   * @param {Object} data - Survey data (title, description, question)
+   * @param {Object} data - Survey data (title, description, templateId)
    * @returns {Promise<Object>} Created survey object
    */
   async createSurvey(data: {
     title: string;
     description?: string;
-    question: string;
+    templateId?: string;
   }) {
     // Generate a unique short ID for blockchain operations
     let shortId: string;
@@ -92,22 +92,26 @@ export class SurveyService {
 
     // Create survey in database
     const surveyId = crypto.randomUUID();
+    const templateId = data.templateId || 'teaching_quality_25q';
+    const totalQuestions = 25; // Default for teaching quality template
+    
     const insertSurvey = await db.query(
       `INSERT INTO surveys (
-         id, short_id, title, description, question,
+         id, short_id, title, description, template_id, total_questions,
          blind_signature_public_key, encryption_public_key,
          is_published, total_responses, created_at, updated_at
        ) VALUES (
-         $1, $2, $3, $4, $5,
-         $6, $7,
+         $1, $2, $3, $4, $5, $6,
+         $7, $8,
          false, 0, NOW(), NOW()
-       ) RETURNING id, short_id, title, description, question, blind_signature_public_key, encryption_public_key, is_published, total_responses, created_at, updated_at`,
+       ) RETURNING id, short_id, title, description, template_id, total_questions, blind_signature_public_key, encryption_public_key, is_published, total_responses, created_at, updated_at`,
       [
         surveyId,
         shortId!,
         data.title,
         data.description ?? null,
-        data.question,
+        templateId,
+        totalQuestions,
         Buffer.from(blindPublicKey).toString('base64'),
         Buffer.from(encryptionPublicKeyExported).toString('base64'),
       ]
@@ -117,7 +121,8 @@ export class SurveyService {
       shortId: insertSurvey.rows[0].short_id,
       title: insertSurvey.rows[0].title,
       description: insertSurvey.rows[0].description,
-      question: insertSurvey.rows[0].question,
+      templateId: insertSurvey.rows[0].template_id,
+      totalQuestions: insertSurvey.rows[0].total_questions,
       blindSignaturePublicKey: insertSurvey.rows[0].blind_signature_public_key,
       encryptionPublicKey: insertSurvey.rows[0].encryption_public_key,
       isPublished: insertSurvey.rows[0].is_published,
@@ -198,13 +203,13 @@ export class SurveyService {
   /**
    * Update an existing survey
    * @param {string} id - Survey ID
-   * @param {Object} data - Updated survey data (title, description, question)
+   * @param {Object} data - Updated survey data (title, description, templateId)
    * @returns {Promise<Object>} Updated survey object
    */
   async updateSurvey(id: string, data: {
     title?: string;
     description?: string;
-    question?: string;
+    templateId?: string;
   }) {
     try {
       // Check if survey exists
@@ -230,9 +235,9 @@ export class SurveyService {
         updateFields.push(`description = $${++paramCount}`);
         updateValues.push(data.description);
       }
-      if (data.question !== undefined) {
-        updateFields.push(`question = $${++paramCount}`);
-        updateValues.push(data.question);
+      if (data.templateId !== undefined) {
+        updateFields.push(`template_id = $${++paramCount}`);
+        updateValues.push(data.templateId);
       }
 
       if (updateFields.length === 0) {
@@ -424,6 +429,119 @@ export class SurveyService {
   }
 
   /**
+   * Parse a single response into individual answers
+   * @param {string} responseText - Response string (e.g., "12345..123")
+   * @param {number} totalQuestions - Total number of questions (default: 25)
+   * @returns {Array<{questionNumber: number, answerValue: number, answerLabel: string}>} Parsed answers
+   */
+  parseIndividualResponse(responseText: string, totalQuestions: number = 25) {
+    if (responseText.length !== totalQuestions) {
+      throw new Error(`Response length mismatch: expected ${totalQuestions}, got ${responseText.length}`);
+    }
+
+    const parsedAnswers = [];
+    const answerLabels = ['Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
+
+    for (let i = 0; i < responseText.length; i++) {
+      const answerValue = parseInt(responseText[i]);
+      if (answerValue < 1 || answerValue > 5) {
+        throw new Error(`Invalid answer value: ${answerValue} at position ${i + 1}`);
+      }
+
+      parsedAnswers.push({
+        questionNumber: i + 1,
+        answerValue: answerValue,
+        answerLabel: answerLabels[answerValue - 1]
+      });
+    }
+
+    return parsedAnswers;
+  }
+
+  /**
+   * Parse survey responses and generate statistics
+   * @param {string} surveyId - Survey ID
+   * @param {string[]} responses - Array of decrypted response strings (e.g., "12345..123")
+   * @returns {Promise<void>}
+   */
+  async generateResponseStatistics(surveyId: string, responses: string[]): Promise<void> {
+    try {
+      // Get survey info to determine number of questions
+      const surveyRes = await db.query(
+        `SELECT total_questions FROM surveys WHERE id = $1 LIMIT 1`,
+        [surveyId]
+      );
+      
+      if (!surveyRes.rows[0]) {
+        throw new Error('Survey not found');
+      }
+      
+      const totalQuestions = surveyRes.rows[0].total_questions || 25;
+      
+      // Initialize statistics counter
+      const statistics: { [questionNumber: number]: { [key: number]: number } } = {};
+      
+      // Initialize all questions and answer values to 0
+      for (let questionNum = 1; questionNum <= totalQuestions; questionNum++) {
+        statistics[questionNum] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      }
+      
+      // Parse each response and count statistics
+      responses.forEach(response => {
+        if (response.length !== totalQuestions) {
+          console.warn(`Response length mismatch: expected ${totalQuestions}, got ${response.length}`);
+          return;
+        }
+        
+        // Parse each character as an answer (1-5)
+        for (let i = 0; i < response.length; i++) {
+          const answerValue = parseInt(response[i]);
+          if (answerValue >= 1 && answerValue <= 5) {
+            statistics[i + 1][answerValue]++;
+          } else {
+            console.warn(`Invalid answer value: ${answerValue} at position ${i + 1}`);
+          }
+        }
+      });
+      
+      // Clear existing statistics for this survey
+      await db.query(
+        `DELETE FROM survey_response_statistics WHERE survey_id = $1`,
+        [surveyId]
+      );
+      
+      // Insert new statistics
+      const insertPromises = [];
+      for (let questionNum = 1; questionNum <= totalQuestions; questionNum++) {
+        for (let answerValue = 1; answerValue <= 5; answerValue++) {
+          const count = statistics[questionNum][answerValue];
+          if (count > 0) { // Only insert non-zero counts to save space
+            insertPromises.push(
+              db.query(
+                `INSERT INTO survey_response_statistics (id, survey_id, question_number, answer_value, count, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+                [
+                  crypto.randomUUID(),
+                  surveyId,
+                  questionNum,
+                  answerValue,
+                  count
+                ]
+              )
+            );
+          }
+        }
+      }
+      
+      await Promise.all(insertPromises);
+      
+      console.log(`✅ Generated statistics for survey ${surveyId}: ${responses.length} responses parsed`);
+    } catch (error: any) {
+      throw new Error(`Failed to generate response statistics: ${error.message}`);
+    }
+  }
+
+  /**
    * Process and decrypt all survey responses from blockchain
    * @param {string} surveyId - Survey ID
    * @returns {Promise<{processedResponses: number, responses: Array}>} Processing results
@@ -453,7 +571,7 @@ export class SurveyService {
       // Decrypt all responses
       const decryptedAnswers = await this.cryptoService.decryptAllResponses(surveyId, encryptedAnswers);
 
-      // Store decrypted responses in database
+      // Store decrypted responses in database and parse statistics
       const responses = await Promise.all(
         decryptedAnswers.map(async (answer, index) => {
           const commitment = new Uint8Array(blockchainSurvey!.data.commitments[index]);
@@ -474,6 +592,9 @@ export class SurveyService {
         })
       );
 
+      // Parse responses and generate statistics
+      await this.generateResponseStatistics(surveyId, decryptedAnswers);
+
       // Update survey response count
       await db.query(`UPDATE surveys SET total_responses = $2, updated_at = NOW() WHERE id = $1`, [surveyId, responses.length]);
 
@@ -493,59 +614,89 @@ export class SurveyService {
   }
 
   /**
-   * Get decrypted survey results (after processing)
+   * Get decrypted survey results with question-by-question statistics
    * @param {string} surveyId - Survey ID
-   * @returns {Promise<Object>} Survey results with aggregated data
+   * @returns {Promise<Object>} Survey results with parsed statistics
    */
   async getSurveyResults(surveyId: string) {
     try {
       const surveyRes = await db.query(
-        `SELECT id, short_id, title, total_responses, is_published, published_at, merkle_root
+        `SELECT id, short_id, title, total_responses, is_published, published_at, merkle_root, template_id, total_questions
          FROM surveys WHERE id = $1 LIMIT 1`,
         [surveyId]
       );
-      const responsesDb = await db.query(
-        `SELECT decrypted_answer FROM survey_responses WHERE survey_id = $1`,
-        [surveyId]
-      );
-      const survey = surveyRes.rows[0]
-        ? {
-            id: surveyRes.rows[0].id,
-            shortId: surveyRes.rows[0].short_id,
-            title: surveyRes.rows[0].title,
-            totalResponses: surveyRes.rows[0].total_responses,
-            isPublished: surveyRes.rows[0].is_published,
-            publishedAt: surveyRes.rows[0].published_at,
-            merkleRoot: surveyRes.rows[0].merkle_root,
-            responses: responsesDb.rows.map((r) => ({ decryptedAnswer: r.decrypted_answer })),
-          }
-        : null;
-
+      
+      const survey = surveyRes.rows[0];
       if (!survey) {
         throw new Error('Survey not found');
       }
 
-      if (!survey.isPublished) {
-        throw new Error('Survey is not yet published');
+      // Allow admin to view results even if not published
+      // if (!survey.is_published) {
+      //   throw new Error('Survey is not yet published');
+      // }
+
+      // Get statistics from the statistics table
+      const statsRes = await db.query(
+        `SELECT question_number, answer_value, count 
+         FROM survey_response_statistics 
+         WHERE survey_id = $1 
+         ORDER BY question_number, answer_value`,
+        [surveyId]
+      );
+
+      // Build question-by-question statistics
+      const questionStatistics: { [questionNumber: number]: { [key: number]: number } } = {};
+      const totalQuestions = survey.total_questions || 25;
+
+      // Initialize all questions
+      for (let q = 1; q <= totalQuestions; q++) {
+        questionStatistics[q] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
       }
 
-      // Always compute results from database (post-publish ciphertexts are cleared on-chain)
-      const answerCounts: { [key: string]: number } = {};
-      const decryptedList: string[] = (survey.responses || [])
-        .map((r: any) => r.decryptedAnswer ?? r.decrypted_answer)
-        .filter((x: any) => typeof x === 'string');
-      decryptedList.forEach((ans: string) => {
-        answerCounts[ans] = (answerCounts[ans] || 0) + 1;
+      // Populate statistics from database
+      statsRes.rows.forEach((row: any) => {
+        questionStatistics[row.question_number][row.answer_value] = row.count;
       });
+
+      // Calculate overall statistics
+      const overallStats = {
+        averageScore: 0,
+        totalResponses: survey.total_responses,
+        scoreDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } as { [key: number]: number }
+      };
+
+      // Calculate average score and overall distribution
+      let totalScore = 0;
+      let totalAnswers = 0;
+      
+      for (let q = 1; q <= totalQuestions; q++) {
+        for (let answer = 1; answer <= 5; answer++) {
+          const count = questionStatistics[q][answer];
+          overallStats.scoreDistribution[answer] += count;
+          totalScore += (answer * count);
+          totalAnswers += count;
+        }
+      }
+      
+      if (totalAnswers > 0) {
+        overallStats.averageScore = totalScore / totalAnswers;
+      }
 
       return {
         surveyId: survey.id,
+        shortId: survey.short_id,
         title: survey.title,
-        totalResponses: decryptedList.length,
-        answerDistribution: answerCounts,
-        isPublished: survey.isPublished,
-        publishedAt: survey.publishedAt,
-        merkleRoot: survey.merkleRoot
+        templateId: survey.template_id,
+        totalQuestions: survey.total_questions,
+        totalResponses: survey.total_responses,
+        isPublished: survey.is_published,
+        publishedAt: survey.published_at,
+        merkleRoot: survey.merkle_root,
+        questionStatistics: questionStatistics,
+        overallStatistics: overallStats,
+        // Legacy format for backward compatibility
+        answerDistribution: questionStatistics
       };
     } catch (error: any) {
       throw new Error(`Failed to get survey results: ${error.message}`);
