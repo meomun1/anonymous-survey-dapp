@@ -23,14 +23,17 @@ The school backend server handles blind signature operations, token management, 
 
 ## Key Features
 - **Automatic cryptographic key generation** (RSA-2048 blind signature & encryption keys)
+- **Template-based survey system** with pre-built question sets (25-question teaching quality assessment)
 - **Blind signature generation** for anonymous participation
 - **Token-based authentication** with automated email distribution
 - **Professional email templates** with survey details and secure token delivery
 - **Survey data encryption/decryption** 
+- **Advanced response processing** with automated blockchain decryption and statistics generation
 - **Blockchain integration** for immutable storage
 - **Merkle tree generation** for result verification
 - **Redis caching** for performance optimization
 - **Admin authentication** with JWT tokens
+- **Comprehensive analytics** with question statistics and category breakdowns
 
 ## Prerequisites
 - **Node.js**: 16.0+
@@ -280,42 +283,33 @@ curl -s -X POST http://localhost:3000/api/tokens/batch-generate \
 
 ## Cryptographic Features
 
-### Blind Signatures (RSA-BSSA)
-- **Library**: `@cloudflare/blindrsa-ts`
-- **Algorithm**: RSA-BSSA with SHA-384 and PSS padding
-- **Key Size**: 2048-bit RSA keys
-- **Purpose**: Ensures student anonymity during participation
+The system implements RSA-based cryptography for secure, anonymous survey participation:
+- **Blind Signatures**: RSA-BSSA with SHA-384 for anonymous participation
+- **Response Encryption**: RSA-OAEP with SHA-256 for data privacy
+- **Commitment Scheme**: SHA-256 hashes for integrity verification
+- **Merkle Trees**: For efficient batch verification of results
 
-### Response Encryption (RSA-OAEP)
-- **Algorithm**: RSA-OAEP with SHA-256
-- **Key Size**: 2048-bit RSA keys  
-- **Purpose**: Protects response privacy on blockchain
-
-### Commitment Scheme (SHA-256)
-- **Algorithm**: SHA-256 hash function
-- **Purpose**: Integrity verification and result validation
-- **Storage**: 32-byte hashes stored on blockchain
-
-### Merkle Tree Verification
-- **Implementation**: Binary Merkle tree with SHA-256
-- **Purpose**: Efficient batch verification of all commitments
-- **Verification**: Public can verify results without private data
+For detailed cryptographic implementation, see [CRYPTO_README.md](../protocol/CRYPTO_README.md).
 
 ## Database Schema
 
 ### Core Tables
 ```sql
--- Surveys with auto-generated cryptographic keys
+-- Surveys with auto-generated cryptographic keys and template support
 CREATE TABLE surveys (
   id VARCHAR PRIMARY KEY,
+  short_id VARCHAR(8) UNIQUE NOT NULL,
   title VARCHAR(255) NOT NULL,
   description TEXT,
-  question TEXT NOT NULL,
+  template_id VARCHAR(255),                  -- Template identifier (e.g., 'teaching_quality_25q')
+  total_questions INTEGER,                   -- Number of questions from template
   blind_signature_public_key TEXT NOT NULL,  -- Base64 encoded
   encryption_public_key TEXT NOT NULL,       -- Base64 encoded
   blockchain_address VARCHAR(255),
   is_published BOOLEAN DEFAULT FALSE,
+  published_at TIMESTAMP,
   total_responses INTEGER DEFAULT 0,
+  merkle_root VARCHAR(255),                  -- Merkle root for verification
   is_public_enabled BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
@@ -350,6 +344,18 @@ CREATE TABLE survey_responses (
   commitment_hash VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Survey response statistics for analytics
+CREATE TABLE survey_response_statistics (
+  id SERIAL PRIMARY KEY,
+  survey_id VARCHAR REFERENCES surveys(id) ON DELETE CASCADE,
+  question_statistics JSONB,                  -- Per-question answer distributions
+  overall_statistics JSONB,                   -- Overall score distribution and averages
+  category_statistics JSONB,                  -- Category-based analysis
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(survey_id)
 );
 
 -- Public responses for curated survey display
@@ -468,10 +474,8 @@ docker run -p 3000:3000 \
 
 ## Related Documentation
 - [Main System Overview](../README.md)
-- [System Architecture](../SYSTEM_DESIGN.md)
-- [Blockchain Component](../blockchain/README.md)
-- [Client Application](../client/README.md)
-- [Documentation Standards](../DOCUMENTATION_STANDARDS.md)
+- [Blockchain Component](../blockchain/BLOCKCHAIN_README.md)
+- [Client Application](../client/CLIENT_README.md)
 
 ## Contributing
 

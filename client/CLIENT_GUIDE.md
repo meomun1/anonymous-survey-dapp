@@ -74,7 +74,7 @@ Students interact through a simple, intuitive interface:
 
 ### 🔧 **Admin Interface** (School Administrators)
 
-Comprehensive management dashboard for school staff:
+Comprehensive management dashboard for school staff with modern glassmorphism design:
 
 1. **Authentication** (`/login`)
    - JWT-based secure login
@@ -82,27 +82,34 @@ Comprehensive management dashboard for school staff:
    - Auto-logout on inactivity
 
 2. **Dashboard** (`/admin`)
+   - Modern glassmorphism design with animated backgrounds
    - Survey statistics overview
-   - Quick action buttons
+   - Quick action buttons in header
    - Recent activity feed
 
 3. **Survey Management** (`/admin/surveys`)
-   - Create new surveys
-   - View all surveys list
-   - Edit/delete surveys
-   - Publish/unpublish surveys
+   - Template-based survey creation
+   - Modern card-based survey list
+   - Header-based actions (View, Delete)
+   - Streamlined navigation
 
 4. **Survey Details** (`/admin/surveys/{id}`)
-   - Individual survey analytics
-   - Response statistics
-   - Participation tracking
-   - Security features display
+   - Header-based quick actions (Manage Tokens, Publish Results, etc.)
+   - Comprehensive analytics with Overview, Questions, and Categories views
+   - Advanced response processing
+   - Real-time statistics
 
 5. **Token Management** (`/admin/surveys/{id}/tokens`)
    - Generate tokens in bulk
    - Email distribution
    - Token status tracking
    - Resend functionality
+
+6. **Response Analytics** (`/admin/surveys/{id}/responses`)
+   - Comprehensive statistics dashboard
+   - Question-by-question analysis
+   - Category-based breakdowns
+   - Export capabilities
 
 ## 🔐 Security & Privacy Features
 
@@ -145,37 +152,12 @@ All cryptographic operations happen in the browser to ensure maximum privacy:
 
 ## 📊 Technical Implementation
 
-### **Technology Stack**
-
-```json
-{
-  "framework": "Next.js 14 (App Router)",
-  "language": "TypeScript",
-  "styling": "Tailwind CSS",
-  "state_management": "React Hooks + Context",
-  "http_client": "Axios",
-  "cryptography": "@cloudflare/blindrsa-ts",
-  "blockchain": "@solana/web3.js",
-  "build_tool": "Webpack (via Next.js)"
-}
-```
-
-### **Key Dependencies**
-
-```typescript
-// Production Dependencies
-"@cloudflare/blindrsa-ts": "^0.4.4",    // Blind signatures
-"@solana/web3.js": "^1.98.2",           // Blockchain integration
-"axios": "^1.9.0",                      // HTTP client
-"next": "14.1.0",                       // React framework
-"react": "^18",                         // UI library
-"tailwindcss": "^3.4.1"                 // CSS framework
-
-// Development Dependencies
-"typescript": "^5",                      // Type safety
-"eslint": "^8",                         // Code quality
-"@types/*": "various"                   // Type definitions
-```
+- **Framework**: Next.js 14 with App Router
+- **Language**: TypeScript for type safety
+- **Styling**: Tailwind CSS for modern UI
+- **State Management**: React Hooks + Context
+- **Cryptography**: Blind signatures and RSA encryption
+- **Blockchain**: Solana integration for immutable storage
 
 ### **Environment Configuration**
 

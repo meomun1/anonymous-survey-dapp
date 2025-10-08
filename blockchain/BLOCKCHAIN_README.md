@@ -204,10 +204,8 @@ await program.methods
 
 ## Related Documentation
 - [Main System Overview](../README.md)
-- [System Architecture](../SYSTEM_DESIGN.md)
-- [Backend Server](../server/README.md)
-- [Client Application](../client/README.md)
-- [Documentation Standards](../DOCUMENTATION_STANDARDS.md)
+- [Backend Server](../server/SERVER_README.md)
+- [Client Application](../client/CLIENT_README.md)
 
 ## Contributing
 1. Fork the repository

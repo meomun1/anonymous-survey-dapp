@@ -32,14 +32,15 @@
 - `POST /api/auth/login` - Admin login
 - `POST /api/auth/refresh` - Refresh JWT token
 
-### Survey Management (9 endpoints)
+### Survey Management (10 endpoints)
 - `GET /api/surveys` - List all surveys
-- `POST /api/surveys` - Create new survey
+- `POST /api/surveys` - Create new survey (supports template system)
 - `PUT /api/surveys/{id}` - Update survey
 - `GET /api/surveys/{id}` - Get survey details
 - `GET /api/surveys/{id}/stats` - Get survey statistics
-- `GET /api/surveys/{id}/results` - Get published results
+- `GET /api/surveys/{id}/results` - Get published results with comprehensive analytics
 - `GET /api/surveys/{id}/keys` - Get survey public keys
+- `POST /api/surveys/{id}/process-responses` - Process blockchain responses and generate statistics
 - `POST /api/surveys/{id}/publish-with-proof` - Publish survey results
 - `DELETE /api/surveys/{id}` - Delete survey
 - `GET /api/surveys/{id}/public-results` - Get curated public results
@@ -76,7 +77,7 @@
 - `GET /api/public-responses/survey/{surveyId}/stats` - Get public statistics
 - `GET /api/public-responses/survey/{surveyId}/public-results` - Get public results
 
-**Total: 38 endpoints** | **Interactive Docs: `/api-docs`** | **Status: `/api-status`**
+**Total: 39 endpoints** | **Interactive Docs: `/api-docs`** | **Status: `/api-status`**
 
 ---
 
@@ -262,9 +263,11 @@ POST /api/surveys
 {
   "title": "Course Feedback Survey",
   "description": "Anonymous feedback for CS101",
-  "question": "How would you rate this course?"
+  "templateId": "teaching_quality_25q"
 }
 ```
+
+**Note:** The system now supports template-based survey creation. When `templateId` is provided, the system automatically uses the pre-defined question set and sets `totalQuestions` accordingly.
 
 **Response:**
 ```json
@@ -369,6 +372,34 @@ GET /api/surveys/{id}/keys
 {
   "blindSignaturePublicKey": "base64-encoded-blind-signature-public-key",
   "encryptionPublicKey": "base64-encoded-encryption-public-key"
+}
+```
+
+#### Process Blockchain Responses
+```http
+POST /api/surveys/{id}/process-responses
+```
+**Authentication:** Required
+
+**Purpose:** Process encrypted responses from the blockchain, decrypt them, and generate comprehensive statistics for analytics.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Responses processed successfully",
+  "processedCount": 25,
+  "statistics": {
+    "questionStatistics": {
+      "1": {"1": 0, "2": 1, "3": 2, "4": 3, "5": 4},
+      "2": {"1": 1, "2": 2, "3": 3, "4": 2, "5": 2}
+    },
+    "overallStatistics": {
+      "averageScore": 4.2,
+      "totalResponses": 25,
+      "scoreDistribution": {"1": 2, "2": 3, "3": 5, "4": 8, "5": 7}
+    }
+  }
 }
 ```
 
@@ -897,50 +928,26 @@ GET /api/public-responses/survey/{surveyId}/stats
 
 ---
 
-## Request/Response Examples
+## Quick Start Examples
 
-### Complete Survey Creation Flow
-
-1. **Login as Admin**
+### Basic Survey Creation Flow
 ```bash
-curl -X POST http://localhost:3000/api/auth/login \
+# 1. Login
+JWT_TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@school.edu","password":"admin123"}'
-```
+  -d '{"email":"admin@school.edu","password":"admin123"}' | jq -r '.token')
 
-2. **Create Survey**
-```bash
-curl -X POST http://localhost:3000/api/surveys \
+# 2. Create Survey
+SURVEY_ID=$(curl -s -X POST http://localhost:3000/api/surveys \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{"title":"Course Feedback","description":"CS101 Feedback","question":"Rate this course"}'
-```
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -d '{"title":"Course Feedback","description":"CS101","templateId":"teaching_quality_25q"}' | jq -r '.id')
 
-3. **Generate Tokens**
-```bash
+# 3. Generate Tokens
 curl -X POST http://localhost:3000/api/tokens/batch-generate \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{"surveyId":"survey_12345","students":[{"email":"student@university.edu"}]}'
-```
-
-### Student Participation Flow
-
-1. **Validate Token**
-```bash
-curl -X GET "http://localhost:3000/api/tokens/validate/abc123?surveyId=survey_12345"
-```
-
-2. **Get Survey Public Keys**
-```bash
-curl -X GET http://localhost:3000/api/surveys/survey_12345/keys
-```
-
-3. **Request Blind Signature**
-```bash
-curl -X POST http://localhost:3000/api/crypto/blind-sign/survey_12345 \
-  -H "Content-Type: application/json" \
-  -d '{"blindedMessage":"base64-encoded-blinded-message"}'
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -d '{"surveyId":"'"$SURVEY_ID"'","students":[{"email":"student@university.edu"}]}'
 ```
 
 ## Rate Limiting

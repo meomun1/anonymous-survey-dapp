@@ -80,11 +80,12 @@ client/
 | `src/app/login/page.tsx` | `/login` | **Admin login** |
 
 <!-- Admin pages -->
-| `src/app/admin/page.tsx` | `/admin` | **Admin dashboard** |
-| `src/app/admin/surveys/page.tsx` | `/admin/surveys` | **Survey management list** |
-| `src/app/admin/surveys/create/page.tsx` | `/admin/surveys/create` | **Create new survey form** |
-| `src/app/admin/surveys/[id]/page.tsx` | `/admin/surveys/123` | **Survey details** (123 = survey ID) |
-| `src/app/admin/surveys/[id]/tokens/page.tsx` | `/admin/surveys/123/tokens` | **Token management for survey** |
+| `src/app/admin/page.tsx` | `/admin` | **Admin dashboard** (Modern glassmorphism design) |
+| `src/app/admin/surveys/page.tsx` | `/admin/surveys` | **Survey management list** (Template-based) |
+| `src/app/admin/surveys/create/page.tsx` | `/admin/surveys/create` | **Create new survey form** (Template system) |
+| `src/app/admin/surveys/[id]/page.tsx` | `/admin/surveys/123` | **Survey details** (Header actions, analytics) |
+| `src/app/admin/surveys/[id]/tokens/page.tsx` | `/admin/surveys/123/tokens` | **Token management** (Modern UI) |
+| `src/app/admin/surveys/[id]/responses/page.tsx` | `/admin/surveys/123/responses` | **Response analytics** (Overview/Questions/Categories) |
 | `src/app/admin/surveys/[id]/attendance/page.tsx` | `/admin/surveys/123/attendance` | **Check attendance** |
 | `src/app/admin/surveys/[id]/publication/page.tsx` | `/admin/surveys/123/publication` | **Manage public responses** |
 
@@ -294,28 +295,12 @@ npm run lint    # Check code quality
 # - CSS changes apply instantly
 ```
 
-## 🔧 Configuration Files Explained
+## 🔧 Configuration Files
 
-### `package.json`
-- Lists all dependencies (libraries your project uses)
-- Defines scripts (commands you can run)
-- Project metadata
-
-### `next.config.js`
-- Next.js specific settings
-- Build configuration
-- Environment variables
-- Redirects and rewrites
-
-### `tsconfig.json`
-- TypeScript configuration
-- How strict type checking should be
-- Which files to include/exclude
-
-### `tailwind.config.js`
-- CSS framework configuration
-- Custom colors, fonts, spacing
-- Responsive breakpoints
+- **`package.json`**: Dependencies and scripts
+- **`next.config.js`**: Next.js settings and build configuration
+- **`tsconfig.json`**: TypeScript configuration
+- **`tailwind.config.js`**: CSS framework settings
 
 ## 🚀 How Our Anonymous Survey System Works
 
@@ -365,20 +350,12 @@ Your client application includes:
 - ✅ **Type-safe code** with TypeScript
 - ✅ **Modern UI** with Tailwind CSS
 
-## 🎓 Learning Resources
-
-- [Next.js Official Docs](https://nextjs.org/docs)
-- [React Official Docs](https://react.dev/)
-- [TypeScript Handbook](https://www.typescriptlang.org/docs/)
-- [Tailwind CSS Docs](https://tailwindcss.com/docs)
-
 ## 🔍 Debugging Tips
 
-1. **Check browser console** for JavaScript errors
-2. **Check terminal** for TypeScript/build errors  
-3. **Use React Developer Tools** browser extension
-4. **Add console.log()** in your functions to trace data flow
-5. **Check Network tab** to see API requests/responses
+- Check browser console for JavaScript errors
+- Check terminal for TypeScript/build errors  
+- Use React Developer Tools browser extension
+- Check Network tab to see API requests/responses
 
 ---
 

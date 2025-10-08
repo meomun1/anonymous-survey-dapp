@@ -17,7 +17,8 @@ The system uses **PostgreSQL** with the following tables:
 - `short_id`: Short alphanumeric ID for blockchain operations (8 chars, unique)
 - `title`: Survey title
 - `description`: Optional survey description
-- `question`: Survey question
+- `template_id`: Template identifier (e.g., 'teaching_quality_25q')
+- `total_questions`: Number of questions from template
 - `blind_signature_public_key`: RSA public key for blind signatures
 - `encryption_public_key`: RSA public key for encryption
 - `merkle_root`: Merkle root hash for commitment verification
@@ -59,6 +60,14 @@ The system uses **PostgreSQL** with the following tables:
 - `survey_id`: Reference to survey (unique)
 - `blind_signature_private_key`: RSA private key for blind signatures
 - `encryption_private_key`: RSA private key for encryption
+- `created_at`, `updated_at`: Timestamps
+
+### 6. `survey_response_statistics` - Analytics and statistics
+- `id`: Unique identifier
+- `survey_id`: Reference to survey (unique)
+- `question_statistics`: JSONB - Per-question answer distributions
+- `overall_statistics`: JSONB - Overall score distribution and averages
+- `category_statistics`: JSONB - Category-based analysis
 - `created_at`, `updated_at`: Timestamps
 
 ## Setup Instructions

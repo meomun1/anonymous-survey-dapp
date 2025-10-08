@@ -23,17 +23,22 @@ The client application provides a user-friendly interface for students to partic
 
 ### For Students
 - **Simple and intuitive survey interface** - Easy-to-use web interface that requires no technical knowledge
+- **Template-based surveys** - Pre-designed question sets with 1-5 rating scales for consistent feedback
 - **No blockchain knowledge required** - All cryptographic operations happen transparently in the background
 - **Anonymous survey participation** - Your identity remains completely private throughout the process
 - **Secure token-based authentication** - One-time tokens ensure only authorized students can participate
 - **End-to-end encrypted response submission** - Your responses are encrypted before being stored on the blockchain
 - **Verifiable participation proof** - Download proof of your participation for your records
 - **Cross-platform compatibility** - Works on any modern web browser (Chrome, Firefox, Safari, Edge)
+- **Visual progress indicators** - Clear progress tracking during survey completion
 
 ### For School Administrators
-- **Survey creation and management** - Create surveys with custom questions and manage multiple surveys
+- **Template-based survey creation** - Use pre-built survey templates (25-question teaching quality assessment)
+- **Modern admin dashboard** - Glassmorphism design with animated backgrounds and streamlined navigation
+- **Comprehensive analytics** - Real-time statistics with Overview, Questions, and Categories views
+- **Enhanced survey management** - Header-based actions with improved visibility and accessibility
 - **Token generation and distribution** - Generate secure tokens and automatically distribute them via email
-- **Survey result analysis** - View comprehensive analytics and response distributions
+- **Advanced response processing** - Automated blockchain response decryption and statistics generation
 - **Participation tracking** - Monitor real-time participation rates and token usage
 - **System configuration** - Configure blockchain settings and manage cryptographic keys
 - **Blockchain transaction management** - Handle all on-chain operations including survey publishing
@@ -130,7 +135,8 @@ Students don't need to configure anything - they simply use the survey links pro
    - Token is marked as "in use" to prevent reuse
 
 2. **Survey Completion**
-   - Answer survey questions in an intuitive interface
+   - Answer survey questions using template-based 1-5 rating scale
+   - Visual progress indicators show completion status
    - Responses are encrypted locally in your browser
    - No personal information is collected or stored
 
@@ -153,7 +159,7 @@ Students don't need to configure anything - they simply use the survey links pro
 
 ### Administrator Survey Management
 1. **Survey Creation**
-   - Design survey with custom questions
+   - Select from pre-built survey templates (25-question teaching quality assessment)
    - System automatically generates cryptographic keys
    - Survey is deployed to blockchain with metadata
 
@@ -164,7 +170,8 @@ Students don't need to configure anything - they simply use the survey links pro
 
 3. **Monitoring & Analysis**
    - Real-time participation tracking at `/admin/surveys/{id}/attendance`
-   - View response statistics and distributions (from DB)
+   - Comprehensive analytics with Overview, Questions, and Categories views
+   - Advanced response processing with automated blockchain decryption
    - Export data for further analysis
    - Verify survey integrity with cryptographic proofs
 
@@ -211,26 +218,14 @@ npm run test:watch       # Run tests in watch mode
 npm run test:coverage    # Generate test coverage report
 ```
 
-## Project Structure (Source of Truth)
+## Project Structure
 ```
 client/
-├── components/         # Reusable React components
-│   ├── student/        # Student-specific components
-│   ├── admin/          # Administrator components
-│   ├── shared/         # Shared UI components
-│   └── layout/         # Layout and navigation
-├── pages/             # Next.js pages and routing
-│   ├── student/        # Student survey interfaces
-│   ├── admin/          # Administrative dashboards
-│   └── api/            # API route handlers
-├── public/            # Static assets and images
-├── styles/            # CSS and styling files
-├── utils/             # Utility functions and helpers
-│   ├── crypto/         # Cryptographic operations
-│   ├── blockchain/     # Blockchain interactions
-│   └── validation/     # Input validation
-├── types/             # TypeScript type definitions
-└── config/            # Configuration files
+├── src/app/           # Next.js App Router pages
+├── src/components/    # Reusable React components
+├── src/hooks/         # Custom React hooks
+├── src/lib/           # Utilities and API functions
+└── src/contexts/      # React context providers
 ```
 
 ## Browser Compatibility
@@ -247,17 +242,6 @@ client/
 - **WebAssembly** for high-performance cryptographic libraries
 - **LocalStorage** for temporary data storage
 
-## Common Tasks (Cheatsheet)
-
-- Create a survey (admin)
-  - Hook: `useSurveys().create(...)`
-  - API: `POST /surveys`
-- Generate tokens
-  - Hook: `useTokens()` then admin UI
-  - API: `POST /tokens/batch-generate`
-- Student participation
-  - Token page `/surveys/token` → validate → participate
-  - Crypto handled in `src/lib/crypto/blindSignatures.ts`
 
 ## Troubleshooting
 
@@ -274,16 +258,13 @@ client/
 - **Email Distribution Problems**: Verify SMTP settings in backend configuration
 
 ### Getting Help
-- Check the [System Design Documentation](../SYSTEM_DESIGN.md) for technical details
-- Review the [Server README](../server/README.md) for backend configuration
+- Review the [Server README](../server/SERVER_README.md) for backend configuration
 - Contact your system administrator for institution-specific issues
 
 ## Related Documentation
 - [Main System Overview](../README.md)
-- [System Architecture](../SYSTEM_DESIGN.md)
-- [Backend Server](../server/README.md)
-- [Blockchain Component](../blockchain/README.md)
-- [Documentation Standards](../DOCUMENTATION_STANDARDS.md)
+- [Backend Server](../server/SERVER_README.md)
+- [Blockchain Component](../blockchain/BLOCKCHAIN_README.md)
 
 ## Contributing
 1. Fork the repository
