@@ -1,4 +1,4 @@
-# Anonymous Survey System - API Documentation
+# Anonymous Survey System - API Documentation (University Scale)
 
 ## Table of Contents
 - [Quick API Reference](#quick-api-reference) ⚡
@@ -10,11 +10,14 @@
 - [API Endpoints](#api-endpoints)
   - [System Endpoints](#system-endpoints)
   - [Authentication Endpoints](#authentication-endpoints)
+  - [University Management Endpoints](#university-management-endpoints)
+  - [Campaign Management Endpoints](#campaign-management-endpoints)
   - [Survey Management Endpoints](#survey-management-endpoints)
   - [Token Management Endpoints](#token-management-endpoints)
   - [Response Endpoints](#response-endpoints)
   - [Cryptographic Endpoints](#cryptographic-endpoints)
-  - [Public Response Management Endpoints](#public-response-management-endpoints)
+  - [Analytics Endpoints](#analytics-endpoints)
+  
 - [Request/Response Examples](#requestresponse-examples)
 - [Rate Limiting](#rate-limiting)
 - [Security Considerations](#security-considerations)
@@ -32,43 +35,51 @@
 - `POST /api/auth/login` - Admin login
 - `POST /api/auth/refresh` - Refresh JWT token
 
-### Survey Management (10 endpoints)
-- `GET /api/surveys` - List all surveys
-- `POST /api/surveys` - Create new survey (supports template system)
+### Survey Management (Campaign-centric)
+- `GET /api/surveys` - List surveys (filtered by campaign)
+- `POST /api/surveys` - Create new survey (requires campaign_id)
 - `PUT /api/surveys/{id}` - Update survey
-- `GET /api/surveys/{id}` - Get survey details
-- `GET /api/surveys/{id}/stats` - Get survey statistics
-- `GET /api/surveys/{id}/results` - Get published results with comprehensive analytics
-- `GET /api/surveys/{id}/keys` - Get survey public keys
-- `POST /api/surveys/{id}/process-responses` - Process blockchain responses and generate statistics
-- `POST /api/surveys/{id}/publish-with-proof` - Publish survey results
+- `GET /api/surveys/{id}` - Get survey details (with campaign context)
+- `GET /api/surveys/campaign/{campaignId}` - List surveys in a campaign (new)
+- `GET /api/surveys/token/{token}` - List eligible surveys for token (new)
 - `DELETE /api/surveys/{id}` - Delete survey
 - `GET /api/surveys/{id}/public-results` - Get curated public results
 
-### Token Management (6 endpoints)
-- `POST /api/tokens/batch-generate` - Generate student tokens
-- `GET /api/tokens/validate/{token}` - Validate token
+### Token Management (Campaign-centric)
+- `POST /api/tokens/campaign/generate` - Generate campaign tokens (admin)
+- `GET /api/tokens/validate/{token}` - Validate token (enhanced validation)
 - `POST /api/tokens/{token}/use` - Mark token as used
 - `POST /api/tokens/{token}/complete` - Mark token as completed
-- `GET /api/tokens/survey/{surveyId}` - Get survey tokens
+- `GET /api/tokens/campaign/{campaignId}` - Get campaign tokens (new)
+- `GET /api/tokens/student/{email}` - Get student tokens (new)
 - `GET /api/tokens/test-email` - Test email service
 
-### Response Management (7 endpoints)
-- `POST /api/responses/blind-sign/{surveyId}` - Generate blind signature
-- `POST /api/responses/submit-to-blockchain` - Submit to blockchain
-- `POST /api/responses/decrypt-all/{surveyId}` - Decrypt all responses
-- `GET /api/responses/survey/{surveyId}` - Get survey responses
-- `GET /api/responses/commitment/{commitmentHash}` - Get by commitment hash
-- `GET /api/responses/stats/{surveyId}` - Get response statistics
-- `GET /api/responses/verify/{responseId}` - Verify response integrity
+### Response Management (Campaign-centric ingest/decrypt)
+- `POST /api/responses/ingest/{campaignId}` - Fetch encrypted responses from blockchain
+- `POST /api/responses/decrypt-campaign/{campaignId}` - Decrypt and parse campaign responses
+- `GET /api/responses/parsed/survey/{surveyId}` - Get parsed responses by survey
+- `GET /api/responses/commitment/{commitmentHex}` - Get response by commitment hex
+- `GET /api/responses/verify/{decryptedResponseId}` - Verify decrypted response integrity
 
-### Cryptographic Operations (6 endpoints)
-- `POST /api/crypto/blind-sign/{surveyId}` - Generate blind signature
+### Cryptographic Operations (Campaign-centric)
+- `POST /api/crypto/campaigns/:campaignId/blind-sign` - Blind sign for campaign
 - `POST /api/crypto/verify-commitment` - Verify commitment
-- `POST /api/crypto/decrypt-response` - Decrypt response
-- `GET /api/crypto/public-keys/{surveyId}` - Get survey public keys
+- `POST /api/crypto/campaigns/:campaignId/decrypt` - Decrypt with campaign keys
+- `GET /api/crypto/campaigns/:campaignId/public-keys` - Get campaign public keys
 - `POST /api/crypto/generate-commitment` - Generate commitment
 - `POST /api/crypto/bulk-verify-commitments` - Bulk verify commitments
+
+### Analytics Endpoints
+- `GET /api/analytics/campaign/{id}` - Get campaign analytics
+- `GET /api/analytics/teacher/{id}/performance` - Get teacher performance analytics
+- `GET /api/analytics/student/{id}/completion` - Get student completion analytics
+- `GET /api/analytics/university` - Get university-wide analytics
+- `GET /api/analytics/school/{id}` - Get school analytics
+- `POST /api/analytics/merkle/calculate-root` - Calculate Merkle root
+- `POST /api/analytics/merkle/calculate-final-root` - Calculate final Merkle root
+- `POST /api/analytics/merkle/generate-proof` - Generate Merkle proof
+- `POST /api/analytics/merkle/verify-proof` - Verify Merkle proof
+- `GET /api/analytics/accreditation/{teacherId}` - Get accreditation data for teacher
 
 ### Public Response Management (5 endpoints)
 - `GET /api/public-responses/survey/{surveyId}/selection` - Get responses for selection
@@ -77,15 +88,22 @@
 - `GET /api/public-responses/survey/{surveyId}/stats` - Get public statistics
 - `GET /api/public-responses/survey/{surveyId}/public-results` - Get public results
 
-**Total: 39 endpoints** | **Interactive Docs: `/api-docs`** | **Status: `/api-status`**
+**Total: 80+ endpoints** | **Interactive Docs: `/api-docs`** | **Status: `/api-status`**
 
 ---
 
 ## Overview
 
-The Anonymous Survey System API provides endpoints for managing surveys, tokens, responses, and cryptographic operations. The API uses JWT tokens for admin authentication and supports both REST and Swagger documentation.
+The Anonymous Survey System API (University Scale) provides comprehensive endpoints for managing university-wide survey campaigns, supporting 1000-2000 students and 4000-8000 course surveys per semester. The API includes university structure management, campaign-based survey operations, batch processing, and advanced analytics. The API uses JWT tokens for admin authentication and supports both REST and Swagger documentation.
 
 **Interactive API Documentation**: Available at `/api-docs` when server is running.
+
+**University Scale Features**:
+- Campaign-based survey management (semester-level)
+- University structure management (schools, teachers, courses, students)
+- Batch response processing (34,000+ responses per semester)
+- Advanced analytics and teacher performance tracking
+- Hierarchical Merkle verification for accreditation
 
 ## Authentication
 
@@ -168,7 +186,7 @@ Returns API status and available endpoints.
     "tokens": "/api/tokens",
     "crypto": "/api/crypto",
     "responses": "/api/responses",
-    "publicResponses": "/api/public-responses"
+  
   },
   "documentation": "/api-docs",
   "health": "/health"
@@ -180,6 +198,74 @@ Returns API status and available endpoints.
 GET /api-docs
 ```
 Swagger UI documentation interface.
+
+---
+
+### University Management Endpoints
+
+#### School Management (5 endpoints)
+- `GET /api/schools` - List all schools
+- `POST /api/schools` - Create new school
+- `GET /api/schools/{id}` - Get school details
+- `PUT /api/schools/{id}` - Update school
+- `DELETE /api/schools/{id}` - Delete school
+
+#### Teacher Management (7 endpoints)
+- `GET /api/teachers` - List all teachers
+- `POST /api/teachers` - Create new teacher
+- `GET /api/teachers/{id}` - Get teacher details
+- `PUT /api/teachers/{id}` - Update teacher
+- `DELETE /api/teachers/{id}` - Delete teacher
+- `GET /api/teachers/{id}/assignments` - Get teacher course assignments
+- `GET /api/teachers/{id}/performance` - Get teacher performance analytics
+
+#### Course Management (5 endpoints)
+- `GET /api/courses` - List all courses
+- `POST /api/courses` - Create new course
+- `GET /api/courses/{id}` - Get course details
+- `PUT /api/courses/{id}` - Update course
+- `DELETE /api/courses/{id}` - Delete course
+
+#### Student Management (6 endpoints)
+- `GET /api/students` - List all students
+- `POST /api/students` - Create new student
+- `GET /api/students/{id}` - Get student details
+- `PUT /api/students/{id}` - Update student
+- `DELETE /api/students/{id}` - Delete student
+- `POST /api/students/bulk-import` - Bulk import students from CSV
+
+#### Assignment Management (10 endpoints)
+- `GET /api/assignments/course` - List course assignments
+- `POST /api/assignments/course` - Create course assignment
+- `GET /api/assignments/course/{id}` - Get assignment details
+- `PUT /api/assignments/course/{id}` - Update assignment
+- `DELETE /api/assignments/course/{id}` - Delete assignment
+- `GET /api/enrollments` - List student enrollments
+- `POST /api/enrollments` - Create enrollment
+- `GET /api/enrollments/{id}` - Get enrollment details
+- `PUT /api/enrollments/{id}` - Update enrollment
+- `DELETE /api/enrollments/{id}` - Delete enrollment
+
+### Campaign Management Endpoints
+
+#### Campaign CRUD (5 endpoints)
+- `GET /api/campaigns` - List all campaigns
+- `POST /api/campaigns` - Create new campaign
+- `GET /api/campaigns/{id}` - Get campaign details
+- `PUT /api/campaigns/{id}` - Update campaign
+- `DELETE /api/campaigns/{id}` - Delete campaign
+
+#### Campaign Workflow (4 endpoints)
+- `POST /api/campaigns/{id}/open` - Open campaign for teacher input
+- `POST /api/campaigns/{id}/close` - Close teacher input period
+- `POST /api/campaigns/{id}/launch` - Launch surveys and generate tokens
+- `POST /api/campaigns/{id}/publish` - Publish campaign results
+
+#### Campaign Analytics (4 endpoints)
+- `GET /api/campaigns/{id}/stats` - Get campaign statistics
+- `GET /api/campaigns/{id}/surveys` - Get campaign surveys
+- `GET /api/campaigns/{id}/completion` - Get completion tracking
+- `GET /api/campaigns/{id}/analytics` - Get detailed analytics
 
 ---
 
@@ -930,24 +1016,30 @@ GET /api/public-responses/survey/{surveyId}/stats
 
 ## Quick Start Examples
 
-### Basic Survey Creation Flow
+### University Campaign Creation Flow
 ```bash
 # 1. Login
 JWT_TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@school.edu","password":"admin123"}' | jq -r '.token')
+  -d '{"email":"admin@university.edu","password":"admin123"}' | jq -r '.token')
 
-# 2. Create Survey
-SURVEY_ID=$(curl -s -X POST http://localhost:3000/api/surveys \
+# 2. Create Campaign
+CAMPAIGN_ID=$(curl -s -X POST http://localhost:3000/api/campaigns \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $JWT_TOKEN" \
-  -d '{"title":"Course Feedback","description":"CS101","templateId":"teaching_quality_25q"}' | jq -r '.id')
+  -d '{"name":"Fall 2024 Course Surveys","semester":"Fall 2024","type":"course"}' | jq -r '.id')
 
-# 3. Generate Tokens
-curl -X POST http://localhost:3000/api/tokens/batch-generate \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $JWT_TOKEN" \
-  -d '{"surveyId":"'"$SURVEY_ID"'","students":[{"email":"student@university.edu"}]}'
+# 3. Open Campaign for Teacher Input
+curl -X POST http://localhost:3000/api/campaigns/$CAMPAIGN_ID/open \
+  -H "Authorization: Bearer $JWT_TOKEN"
+
+# 4. Launch Campaign (Generate Surveys & Tokens)
+curl -X POST http://localhost:3000/api/campaigns/$CAMPAIGN_ID/launch \
+  -H "Authorization: Bearer $JWT_TOKEN"
+
+# 5. Get Campaign Analytics
+curl -X GET http://localhost:3000/api/campaigns/$CAMPAIGN_ID/analytics \
+  -H "Authorization: Bearer $JWT_TOKEN"
 ```
 
 ## Rate Limiting

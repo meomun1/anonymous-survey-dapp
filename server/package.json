@@ -12,7 +12,9 @@
     "test:coverage": "jest --coverage",
     "lint": "eslint . --ext .ts",
     "type-check": "tsc --noEmit",
-    "generate-admin-hash": "ts-node scripts/generate-admin-hash.ts"
+    "generate-admin-hash": "ts-node scripts/generate-admin-hash.ts",
+    "init-db": "bash test-scripts/init-db.sh",
+    "smoke": "bash test-scripts/full-workflow.sh"
   },
   "keywords": [],
   "author": "",
