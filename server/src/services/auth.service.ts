@@ -28,7 +28,7 @@ export class AuthService {
     }
 
     const token = jwt.sign(
-      { id: 'admin', role: 'admin' },
+      { id: 'admin_001', role: 'admin' },
       process.env.JWT_SECRET || 'fallback-secret',
       { expiresIn: '24h' }
     );

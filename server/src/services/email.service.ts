@@ -8,15 +8,6 @@ export interface EmailConfig {
   pass: string;
   from: string;
 }
-
-export interface SurveyInfo {
-  id: string;
-  shortId?: string;
-  title: string;
-  description?: string;
-  question: string;
-}
-
 export interface TokenInfo {
   token: string;
   studentEmail: string;
@@ -74,85 +65,72 @@ export class EmailService {
     }
   }
 
-  async sendSurveyToken(tokenInfo: TokenInfo, surveyInfo: SurveyInfo, baseUrl: string = 'http://localhost:3000'): Promise<boolean> {
+  // ============================================================================
+  // CAMPAIGN-LEVEL EMAILS (survey_tokens)
+  // ============================================================================
+  async sendCampaignTokens(campaignId: string, baseUrl: string = 'http://localhost:3000') {
+    if (!this.transporter) return { success: 0, failed: 0, details: [] };
+    // Load campaign basics and tokens
+    const campaignRes = await (await import('../config/database')).default.query(
+      `SELECT id, name FROM survey_campaigns WHERE id = $1 LIMIT 1`,
+      [campaignId]
+    );
+    if (campaignRes.rowCount === 0) return { success: 0, failed: 0, details: [] };
+    const campaign = campaignRes.rows[0];
+    const tokensRes = await (await import('../config/database')).default.query(
+      `SELECT token, student_email FROM survey_tokens WHERE campaign_id = $1`,
+      [campaignId]
+    );
+    const results = await Promise.allSettled(tokensRes.rows.map(async (row: any) => {
+      const tokenInfo: TokenInfo = { token: row.token, studentEmail: row.student_email };
+      // Generic campaign email (no specific survey info). Reuse template minimally.
+      const ok = await this.sendGenericCampaignToken(tokenInfo, campaign.name, baseUrl);
+      return { email: row.student_email, success: ok };
+    }));
+    const details = results.map(r => r.status === 'fulfilled' ? r.value : { email: '', success: false });
+    const success = details.filter(d => d.success).length;
+    const failed = details.length - success;
+    return { success, failed, details };
+  }
+
+  private async sendGenericCampaignToken(tokenInfo: TokenInfo, campaignName: string, baseUrl: string) {
     if (!this.transporter) return false;
-
-    const surveyUrl = `${baseUrl}/surveys/${surveyInfo.shortId || surveyInfo.id}/participate`;
-
+    const url = `${baseUrl}/campaigns/${encodeURIComponent(campaignName)}`;
     try {
       await this.transporter.sendMail({
         from: this.config!.from,
         to: tokenInfo.studentEmail,
-        subject: `Survey Invitation: ${surveyInfo.title}`,
-        html: this.generateTokenEmailHtml(tokenInfo, surveyInfo, surveyUrl),
-        text: this.generateTokenEmailText(tokenInfo, surveyInfo, surveyUrl)
+        subject: `Survey Campaign Invitation: ${campaignName}`,
+        html: this.genericCampaignHtml(tokenInfo, campaignName, url),
+        text: this.genericCampaignText(tokenInfo, campaignName, url)
       });
-      console.log(`📧 Survey token sent to ${tokenInfo.studentEmail}`);
       return true;
-    } catch (error) {
-      console.error(`❌ Failed to send email to ${tokenInfo.studentEmail}:`, error);
+    } catch {
       return false;
     }
   }
 
-  async sendBatchSurveyTokens(tokens: TokenInfo[], surveyInfo: SurveyInfo, baseUrl: string = 'http://localhost:3000') {
-    if (!this.transporter) {
-      return { success: 0, failed: tokens.length, details: tokens.map(t => ({ email: t.studentEmail, success: false })) };
-    }
-
-    const results = await Promise.allSettled(
-      tokens.map(token => this.sendSurveyToken(token, surveyInfo, baseUrl))
-    );
-
-    const details = results.map((result, index) => ({
-      email: tokens[index].studentEmail,
-      success: result.status === 'fulfilled' && result.value
-    }));
-
-    const success = details.filter(d => d.success).length;
-    const failed = details.length - success;
-
-    return { success, failed, details };
+  private genericCampaignHtml(tokenInfo: TokenInfo, campaignName: string, url: string) {
+    return `
+          <!DOCTYPE html>
+          <html>
+          <head><title>${campaignName} - Survey Access</title></head>
+          <body>
+            <h1>${campaignName}</h1>
+            <p>Your campaign access token:</p>
+            <div style="background:#e9ecef;padding:12px;border-radius:6px;font-family:monospace;text-align:center;">${tokenInfo.token}</div>
+            <p>Use this token in the survey portal.</p>
+            <a href="${url}" style="background:#007bff;color:#fff;padding:10px 18px;text-decoration:none;border-radius:6px;">Open Survey Portal</a>
+          </body>
+          </html>`;
   }
 
-  private generateTokenEmailHtml(tokenInfo: TokenInfo, surveyInfo: SurveyInfo, surveyUrl: string): string {
-    return `
-<!DOCTYPE html>
-<html>
-<head><title>Survey Invitation</title></head>
-<body>
-    <h1>📊 Survey Invitation</h1>
-    <h2>${surveyInfo.title}</h2>
-    ${surveyInfo.description ? `<p><strong>Description:</strong> ${surveyInfo.description}</p>` : ''}
-    <p><strong>Question:</strong> ${surveyInfo.question}</p>
-    
-    <div style="background: #e9ecef; padding: 15px; border-radius: 6px; margin: 20px 0; font-family: monospace; text-align: center;">
-        <strong>Your Access Token: ${tokenInfo.token}</strong>
-    </div>
-    
-    <p>Use this token to access the survey. Keep it secure and private.</p>
-    <a href="${surveyUrl}" style="background: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">🚀 Participate in Survey</a>
-    
-    <p><em>This is an automated message. Please do not reply.</em></p>
-</body>
-</html>`;
-  }
+  private genericCampaignText(tokenInfo: TokenInfo, campaignName: string, url: string) {
+    return `Survey Campaign: ${campaignName}
 
-  private generateTokenEmailText(tokenInfo: TokenInfo, surveyInfo: SurveyInfo, surveyUrl: string): string {
-    return `
-Survey Invitation
-=================
+            Token: ${tokenInfo.token}
 
-Survey: ${surveyInfo.title}
-${surveyInfo.description ? `Description: ${surveyInfo.description}\n` : ''}Question: ${surveyInfo.question}
-
-Your Access Token: ${tokenInfo.token}
-
-Use this token to access the survey at: ${surveyUrl}
-
-Keep this token secure and private.
-
-This is an automated message. Please do not reply.`;
+            Open Portal: ${url}`;
   }
 
   isAvailable(): boolean {
