@@ -7,20 +7,20 @@ export class CryptoController {
   /**
    * Generate blind signature for student's blinded message
    */
-  async generateBlindSignature(req: Request, res: Response) {
+  async blindSignCampaign(req: Request, res: Response) {
     try {
-      const { surveyId } = req.params;
+      const { campaignId } = req.params;
       const { blindedMessage } = req.body;
 
-      if (!surveyId || !blindedMessage) {
-        return res.status(400).json({ error: 'Survey ID and blinded message are required' });
+      if (!campaignId || !blindedMessage) {
+        return res.status(400).json({ error: 'Campaign ID and blinded message are required' });
       }
 
       // Convert base64 blinded message to Uint8Array
       const blindedMessageBuffer = Buffer.from(blindedMessage, 'base64');
       const blindedMessageArray = new Uint8Array(blindedMessageBuffer);
 
-      const blindSignature = await cryptoService.generateBlindSignature(surveyId, blindedMessageArray);
+      const blindSignature = await cryptoService.blindSignCampaign(campaignId, blindedMessageArray);
       
       // Convert to base64 for transmission
       const blindSignatureBase64 = Buffer.from(blindSignature).toString('base64');
@@ -64,19 +64,20 @@ export class CryptoController {
   /**
    * Decrypt individual response
    */
-  async decryptResponse(req: Request, res: Response) {
+  async decryptForCampaign(req: Request, res: Response) {
     try {
-      const { surveyId, encryptedAnswer } = req.body;
+      const { campaignId } = req.params;
+      const { encryptedAnswer } = req.body;
 
-      if (!surveyId || !encryptedAnswer) {
-        return res.status(400).json({ error: 'Survey ID and encrypted answer are required' });
+      if (!campaignId || !encryptedAnswer) {
+        return res.status(400).json({ error: 'Campaign ID and encrypted answer are required' });
       }
 
       // Convert base64 encrypted answer to Uint8Array
-      const encryptedAnswerBuffer = Buffer.from(encryptedAnswer, 'base64');
-      const encryptedAnswerArray = new Uint8Array(encryptedAnswerBuffer);
+      const buf = Buffer.from(encryptedAnswer, 'base64');
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 
-      const decryptedAnswer = await cryptoService.decryptResponse(surveyId, encryptedAnswerArray);
+      const decryptedAnswer = await cryptoService.decryptForCampaign(campaignId, ab);
 
       res.json({ decryptedAnswer });
     } catch (error: any) {
@@ -89,17 +90,17 @@ export class CryptoController {
   }
 
   /**
-   * Get survey public keys
+   * Get campaign public keys
    */
-  async getSurveyPublicKeys(req: Request, res: Response) {
+  async getCampaignPublicKeys(req: Request, res: Response) {
     try {
-      const { surveyId } = req.params;
+      const { campaignId } = req.params;
 
-      if (!surveyId) {
-        return res.status(400).json({ error: 'Survey ID is required' });
+      if (!campaignId) {
+        return res.status(400).json({ error: 'Campaign ID is required' });
       }
 
-      const publicKeys = await cryptoService.getSurveyPublicKeys(surveyId);
+      const publicKeys = await cryptoService.getCampaignPublicKeys(campaignId);
 
       // Convert Uint8Arrays to base64 for transmission
       const response = {

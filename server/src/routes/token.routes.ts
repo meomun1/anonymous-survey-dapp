@@ -7,9 +7,9 @@ const tokenController = new TokenController();
 
 /**
  * @swagger
- * /tokens/batch-generate:
+ * /tokens/campaign/generate:
  *   post:
- *     summary: Generate tokens for multiple students (admin only)
+ *     summary: Generate campaign tokens for students (admin only)
  *     tags: [Tokens]
  *     security:
  *       - bearerAuth: []
@@ -20,55 +20,20 @@ const tokenController = new TokenController();
  *           schema:
  *             type: object
  *             required:
- *               - surveyId
- *               - students
+ *               - campaignId
+ *               - studentEmails
  *             properties:
- *               surveyId:
+ *               campaignId:
  *                 type: string
- *                 description: Survey ID
- *               students:
+ *               studentEmails:
  *                 type: array
  *                 items:
- *                   type: object
- *                   properties:
- *                     email:
- *                       type: string
- *                       format: email
- *                       description: Student email address
- *                 example:
- *                   - email: "student1@university.edu"
- *                   - email: "student2@university.edu"
+ *                   type: string
  *     responses:
  *       201:
- *         description: Tokens generated and emails sent successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                 count:
- *                   type: integer
- *                 emailsSent:
- *                   type: integer
- *                 emailsFailed:
- *                   type: integer
- *                 tokens:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       token:
- *                         type: string
- *                       email:
- *                         type: string
- *       401:
- *         description: Unauthorized - JWT token required
- *       403:
- *         description: Forbidden - Admin access required
+ *         description: Tokens generated
  */
-router.post('/batch-generate', verifyToken, requireAdmin, tokenController.generateBatchTokens.bind(tokenController));
+router.post('/campaign/generate', verifyToken, requireAdmin, tokenController.generateCampaignTokens.bind(tokenController));
 
 /**
  * @swagger
@@ -83,11 +48,7 @@ router.post('/batch-generate', verifyToken, requireAdmin, tokenController.genera
  *         schema:
  *           type: string
  *         description: Token to validate
- *       - in: query
- *         name: surveyId
- *         schema:
- *           type: string
- *         description: Survey ID (optional)
+ *       # campaign-first: no surveyId query
  *     responses:
  *       200:
  *         description: Token validation result
@@ -100,7 +61,7 @@ router.post('/batch-generate', verifyToken, requireAdmin, tokenController.genera
  *                   type: boolean
  *                 token:
  *                   type: string
- *                 surveyId:
+ *                 campaignId:
  *                   type: string
  *                 studentEmail:
  *                   type: string
@@ -222,7 +183,45 @@ router.post('/:token/complete', tokenController.markTokenAsCompleted.bind(tokenC
  *       401:
  *         description: Unauthorized - JWT token required
  */
-router.get('/survey/:surveyId', tokenController.getSurveyTokens.bind(tokenController));
+/**
+ * @swagger
+ * /tokens/campaign/{campaignId}:
+ *   get:
+ *     summary: List tokens in a campaign
+ *     tags: [Tokens]
+ *     parameters:
+ *       - in: path
+ *         name: campaignId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Tokens
+ */
+router.get('/campaign/:campaignId', tokenController.getCampaignTokens.bind(tokenController));
+
+/**
+ * @swagger
+ * /tokens/student/{email}:
+ *   get:
+ *     summary: List tokens for a student (optionally by campaignId query)
+ *     tags: [Tokens]
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: campaignId
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Tokens
+ */
+router.get('/student/:email', tokenController.getStudentTokens.bind(tokenController));
 
 /**
  * @swagger
