@@ -1,4 +1,4 @@
-# Anonymous Survey System - Backend Server
+# Anonymous Survey System - Backend Server (University Scale)
 
 ## Table of Contents
 - [Overview](#overview)
@@ -19,21 +19,33 @@
 - [License](#license)
 
 ## Overview
-The school backend server handles blind signature operations, token management, survey processing, and blockchain integration for the anonymous survey system. It serves as the secure intermediary between students and the blockchain, ensuring cryptographic privacy while maintaining verifiable integrity.
+The university-scale backend server handles campaign-based survey management, university structure administration, batch response processing, and blockchain integration for the anonymous survey system. It supports 1000-2000 students and 4000-8000 course surveys per semester, serving as the secure intermediary between students and the blockchain while ensuring cryptographic privacy and verifiable integrity for accreditation purposes.
 
 ## Key Features
+
+### University Management
+- **University structure management** (schools, teachers, courses, students)
+- **Campaign-based survey system** (semester-level organization)
+- **Batch operations** for handling 34,000+ responses per semester
+- **Teacher performance tracking** with accreditation-ready verification
+- **Student completion monitoring** and participation analytics
+
+### Survey & Campaign Features
 - **Automatic cryptographic key generation** (RSA-2048 blind signature & encryption keys)
 - **Template-based survey system** with pre-built question sets (25-question teaching quality assessment)
-- **Blind signature generation** for anonymous participation
+- **Campaign workflow management** (open → close → launch → publish)
+- **Blind signature generation** for anonymous participation (campaign-scoped)
 - **Token-based authentication** with automated email distribution
 - **Professional email templates** with survey details and secure token delivery
-- **Survey data encryption/decryption** 
-- **Advanced response processing** with automated blockchain decryption and statistics generation
-- **Blockchain integration** for immutable storage
-- **Merkle tree generation** for result verification
+
+### Advanced Processing
+- **Survey data encryption/decryption** with enhanced answer string format
+- **Batch response processing** with off-chain Merkle tree calculation
+- **Blockchain integration** for immutable storage and hierarchical verification
+- **Merkle tree generation** for result verification and teacher performance proof
 - **Redis caching** for performance optimization
 - **Admin authentication** with JWT tokens
-- **Comprehensive analytics** with question statistics and category breakdowns
+- **Comprehensive analytics** with university-wide statistics and teacher performance metrics
 
 ## Prerequisites
 - **Node.js**: 16.0+
@@ -54,12 +66,8 @@ npm install
 cp env.txt .env
 # Edit .env with your configuration (see env.txt for all required variables)
 
-# Setup database (using scripts in server/database)
-# Option A: Fresh database
-cd server/database && createdb anonymous_survey && psql -d anonymous_survey -f init.sql && cd -
-
-# Option B: Apply/refresh schema to existing DB
-psql -d anonymous_survey -f server/database/schema.sql
+# Setup database with university schema
+cd server/database && createdb anonymous_survey_university && psql -d anonymous_survey_university -f university-schema.sql && cd -
 
 # Start development server
 npm run dev
@@ -111,11 +119,17 @@ server/
 ├── src/
 │   ├── controllers/     # HTTP request handlers
 │   │   ├── survey.controller.ts
+│   │   ├── campaign.controller.ts          # New: Campaign management
+│   │   ├── university.controller.ts        # New: University structure
+│   │   ├── analytics.controller.ts         # New: Analytics & reporting
 │   │   ├── crypto.controller.ts
 │   │   ├── token.controller.ts
 │   │   └── response.controller.ts
 │   ├── services/        # Business logic layer
 │   │   ├── survey.service.ts
+│   │   ├── campaign.service.ts             # New: Campaign operations
+│   │   ├── university.service.ts           # New: University management
+│   │   ├── analytics.service.ts            # New: Analytics & Merkle calculations
 │   │   ├── crypto.service.ts
 │   │   ├── token.service.ts
 │   │   ├── blockchain.service.ts
@@ -123,6 +137,9 @@ server/
 │   │   └── auth.service.ts
 │   ├── routes/          # API route definitions
 │   │   ├── survey.routes.ts
+│   │   ├── campaign.routes.ts              # New: Campaign endpoints
+│   │   ├── university.routes.ts            # New: University management
+│   │   ├── analytics.routes.ts             # New: Analytics endpoints
 │   │   ├── crypto.routes.ts
 │   │   ├── token.routes.ts
 │   │   └── auth.routes.ts
@@ -130,7 +147,9 @@ server/
 │   ├── models/          # Database models (Raw SQL)
 │   ├── utils/           # Utility functions
 │   └── config/          # Configuration files
-├── prisma/              # SQL migration files
+├── database/            # Database schema and migrations
+│   ├── university-schema.sql               # New: University schema
+│   └── init.sql
 └── tests/               # Test files
 ```
 
@@ -144,97 +163,115 @@ server/
 
 ### Quick API Overview
 
-The API includes the following endpoint groups:
+The API includes the following endpoint groups (campaign-first):
 
 - **System**: `/health`, `/api-status`, `/api-docs`
 - **Authentication**: `/api/auth/*` (login, refresh)
-- **Surveys**: `/api/surveys/*` (CRUD, stats, results, keys, publishing)
-- **Tokens**: `/api/tokens/*` (generation, validation, management)
-- **Responses**: `/api/responses/*` (submission, decryption, verification)
-- **Cryptography**: `/api/crypto/*` (blind signatures, commitments, keys)
-- **Public Responses**: `/api/public-responses/*` (curation, visibility)
+- **University Management**: `/api/university/*` (schools, teachers, courses, students, semesters)
+- **Assignments & Enrollments**: `/api/university/course-assignments/*`, `/api/university/enrollments/*`
+- **Campaigns**: `/api/campaigns/*` (CRUD, open, close, launch, publish, surveys, stats, analytics)
+- **Surveys**: `/api/surveys/*` (CRUD, list by campaign, list by token)
+- **Tokens**: `/api/tokens/*` (campaign token generation, validate, mark, list)
+- **Responses**: `/api/responses/*` (ingest from chain, decrypt-campaign, parsed-by-survey, commitment lookup, verify)
+- **Crypto**: `/api/crypto/*` (campaign blind-sign, campaign decrypt, campaign public-keys, commitments, merkle)
+- **Analytics**: `/api/analytics/*` (merkle ops, campaign analytics, teacher performance, student completion, university/school)
 
-**Total Endpoints**: 35+ endpoints across 7 main categories
+**Total Endpoints**: 80+ endpoints across core categories above
 
 ## Quick Start Examples
 
-### Basic Survey Creation Flow
+### University Campaign Creation Flow
 ```bash
 # 1. Login
 JWT_TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@school.edu","password":"admin123"}' | jq -r '.token')
+  -d '{"email":"admin@university.edu","password":"admin123"}' | jq -r '.token')
 
-# 2. Create Survey
-SURVEY_ID=$(curl -s -X POST http://localhost:3000/api/surveys \
+# 2. Create Campaign
+CAMPAIGN_ID=$(curl -s -X POST http://localhost:3000/api/campaigns \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $JWT_TOKEN" \
-  -d '{"title":"Course Feedback","description":"CS101","question":"Rate this course"}' | jq -r '.id')
+  -d '{"name":"Fall 2024 Course Surveys","semester":"Fall 2024","type":"course"}' | jq -r '.id')
 
-# 3. Generate Tokens
-curl -X POST http://localhost:3000/api/tokens/batch-generate \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $JWT_TOKEN" \
-  -d '{"surveyId":"'"$SURVEY_ID"'","students":[{"email":"student@university.edu"}]}'
+# 3. Open Campaign for Teacher Input
+curl -X POST http://localhost:3000/api/campaigns/$CAMPAIGN_ID/open \
+  -H "Authorization: Bearer $JWT_TOKEN"
+
+# 4. Launch Campaign (Generate Surveys & Tokens)
+curl -X POST http://localhost:3000/api/campaigns/$CAMPAIGN_ID/launch \
+  -H "Authorization: Bearer $JWT_TOKEN"
+
+# 5. Get Campaign Analytics
+curl -X GET http://localhost:3000/api/campaigns/$CAMPAIGN_ID/analytics \
+  -H "Authorization: Bearer $JWT_TOKEN"
 ```
 
-### Student Participation Flow
+### Student Participation Flow (Campaign-first)
 ```bash
-# 1. Validate Token
-curl -X GET "http://localhost:3000/api/tokens/validate/abc123?surveyId=survey_12345"
+# 1. Validate Campaign Token
+curl -X GET "http://localhost:3000/api/tokens/validate/abc123"
 
-# 2. Get Public Keys
-curl -X GET http://localhost:3000/api/surveys/survey_12345/keys
+# 2. Get student's eligible surveys for this token
+curl -X GET http://localhost:3000/api/surveys/token/abc123
 
-# 3. Request Blind Signature
-curl -X POST http://localhost:3000/api/crypto/blind-sign/survey_12345 \
+# 3. Get campaign public keys (for the related campaignId)
+curl -X GET http://localhost:3000/api/crypto/campaigns/CAMPAIGN_ID/public-keys
+
+# 4. Request blind signature for a blinded message (campaign)
+curl -X POST http://localhost:3000/api/crypto/campaigns/CAMPAIGN_ID/blind-sign \
   -H "Content-Type: application/json" \
   -d '{"blindedMessage":"base64-encoded-message"}'
+
+# 5. Client submits responses on-chain (no server endpoint)
+# ... client-side blockchain submission ...
 ```
 
 > **📚 For detailed examples and complete API reference**: See [API_DOCUMENTATION.md](./API_DOCUMENTATION.md)
 
 ## System Architecture Flow
 
-### 1. Survey Setup (Automated)
+### 1. Campaign Setup (Automated)
 ```javascript
-// When school creates survey, server automatically:
-// 1. Generates RSA-2048 blind signature key pair
-// 2. Generates RSA-2048 encryption key pair  
+// When admin creates campaign, server automatically:
+// 1. Generates RSA-2048 blind signature key pair for campaign
+// 2. Generates RSA-2048 encryption key pair for campaign
 // 3. Stores private keys securely in database
-// 4. Creates survey on Solana blockchain with public keys
-// 5. Returns survey ID and public keys to client
+// 4. Creates campaign on Solana blockchain with public keys
+// 5. Returns campaign ID and public keys to client
 ```
 
-### 2. Token Distribution (Email-based)
+### 2. Token Distribution (Campaign-based)
 ```javascript
-// When school generates tokens:
-// 1. Creates cryptographically secure random tokens
-// 2. Maps tokens to student emails in database
+// When campaign launches:
+// 1. Creates cryptographically secure random tokens for all enrolled students
+// 2. Maps tokens to student emails in database (campaign-level)
 // 3. Sends tokens via SMTP email to students
-// 4. Tokens include survey URL and participation instructions
+// 4. Tokens include campaign dashboard URL and participation instructions
 ```
 
-### 3. Student Authentication & Participation
+### 3. Student Authentication & Participation (Enhanced)
 ```javascript
 // Student participation flow:
 // 1. Student receives token via email
-// 2. Client validates token with server
-// 3. Client gets survey public keys from server
-// 4. Client generates blinded message locally
-// 5. Client requests blind signature from server
-// 6. Client finalizes signature and submits (school may submit on-chain; ciphertext is not retained post-publish)
-// 7. Server marks token as completed and stores decrypted answer off-chain when processed
+// 2. Client validates token with server (campaign-level validation)
+// 3. Client gets available surveys for student from server
+// 4. Client gets survey public keys from server
+// 5. Client generates blinded messages locally for multiple surveys
+// 6. Client requests blind signatures from server
+// 7. Client finalizes signatures and batch submits to blockchain
+// 8. Server marks token as completed and processes responses when campaign closes
 ```
 
-### 4. Result Processing & Verification
+### 4. Campaign Result Processing & Verification (Campaign-first)
 ```javascript
-// After survey collection period:
-// 1. Server decrypts and stores responses in DB (source of truth for display)
-// 2. Server generates Merkle root from commitments
-// 3. Server publishes results with Merkle root on-chain
-//    (smart contract clears on-chain encrypted_answers in publish_results)
-// 4. Public verifies results via commitments + Merkle root; UI reads distributions from DB
+// After campaign collection period:
+// 1. Admin closes campaign to prevent new submissions
+// 2. Server ingests encrypted responses from blockchain: POST /api/responses/ingest/{campaignId}
+// 3. Server decrypts and parses: POST /api/responses/decrypt-campaign/{campaignId}
+// 4. Server calculates Merkle roots (off-chain): POST /api/analytics/merkle/*
+// 5. Server publishes campaign results (service/controller)
+// 6. Server updates final hierarchical Merkle root (university-level)
+// 7. Verification via commitments + Merkle root; UI reads analytics from DB
 ```
 
 ## Email Functionality
@@ -254,9 +291,9 @@ The system supports various SMTP providers including:
 
 ### Email Templates
 Each student receives a personalized email containing:
-- Survey title, description, and question
+- Campaign title and context
 - Unique access token (securely displayed)
-- Direct link to participate in the survey
+- Campaign portal link (client) to access eligible surveys
 - Privacy and security instructions
 
 ### Testing Email Service
@@ -265,7 +302,7 @@ Each student receives a personalized email containing:
 curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   http://localhost:3000/api/tokens/test-email
 
-# End-to-end: create a survey and send token to your email
+# End-to-end: generate campaign tokens and email
 JWT_TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@school.edu","password":"admin123"}' | jq -r '.token')
@@ -275,10 +312,10 @@ SURVEY_ID=$(curl -s -X POST http://localhost:3000/api/surveys \
   -H "Authorization: Bearer $JWT_TOKEN" \
   -d '{"title":"Email Test Survey","description":"Testing email","question":"How is it?"}' | jq -r '.id')
 
-curl -s -X POST http://localhost:3000/api/tokens/batch-generate \
+curl -s -X POST http://localhost:3000/api/tokens/campaign/generate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $JWT_TOKEN" \
-  -d '{"surveyId":"'"$SURVEY_ID"'","students":[{"email":"your_email@example.com"}]}'
+  -d '{"campaignId":"YOUR_CAMPAIGN_ID","studentEmails":["your_email@example.com"]}'
 ```
 
 ## Cryptographic Features
@@ -293,83 +330,34 @@ For detailed cryptographic implementation, see [CRYPTO_README.md](../protocol/CR
 
 ## Database Schema
 
-### Core Tables
-```sql
--- Surveys with auto-generated cryptographic keys and template support
-CREATE TABLE surveys (
-  id VARCHAR PRIMARY KEY,
-  short_id VARCHAR(8) UNIQUE NOT NULL,
-  title VARCHAR(255) NOT NULL,
-  description TEXT,
-  template_id VARCHAR(255),                  -- Template identifier (e.g., 'teaching_quality_25q')
-  total_questions INTEGER,                   -- Number of questions from template
-  blind_signature_public_key TEXT NOT NULL,  -- Base64 encoded
-  encryption_public_key TEXT NOT NULL,       -- Base64 encoded
-  blockchain_address VARCHAR(255),
-  is_published BOOLEAN DEFAULT FALSE,
-  published_at TIMESTAMP,
-  total_responses INTEGER DEFAULT 0,
-  merkle_root VARCHAR(255),                  -- Merkle root for verification
-  is_public_enabled BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
+### University Schema Overview
+The university-scale database includes 20+ tables organized into these main categories:
 
--- Private keys stored separately for security
-CREATE TABLE survey_private_keys (
-  survey_id VARCHAR PRIMARY KEY REFERENCES surveys(id) ON DELETE CASCADE,
-  blind_signature_private_key TEXT NOT NULL,  -- Base64 encoded, encrypted
-  encryption_private_key TEXT NOT NULL,       -- Base64 encoded, encrypted
-  created_at TIMESTAMP DEFAULT NOW()
-);
+#### University Structure
+- `schools` - University schools/departments
+- `teachers` - Faculty members with school associations
+- `courses` - Course catalog with school associations
+- `students` - Student records with school associations
+- `semesters` - Academic semester management
 
--- Student authentication tokens
-CREATE TABLE tokens (
-  id SERIAL PRIMARY KEY,
-  token VARCHAR(255) UNIQUE NOT NULL,
-  survey_id VARCHAR REFERENCES surveys(id) ON DELETE CASCADE,
-  student_email VARCHAR(255) NOT NULL,
-  used BOOLEAN DEFAULT FALSE,
-  is_completed BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP DEFAULT NOW(),
-  used_at TIMESTAMP,
-  completed_at TIMESTAMP
-);
+#### Campaign Management
+- `survey_campaigns` - Semester-level campaigns with cryptographic keys
+- `surveys` - Individual surveys within campaigns (lightweight)
+- `course_assignments` - Teacher-course assignments
+- `enrollments` - Student-course enrollments
 
--- Decrypted survey responses (after processing)
-CREATE TABLE survey_responses (
-  id SERIAL PRIMARY KEY,
-  survey_id VARCHAR REFERENCES surveys(id) ON DELETE CASCADE,
-  decrypted_answer TEXT NOT NULL,
-  commitment_hash VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
+#### Response Processing
+- `survey_responses` - Encrypted responses from blockchain (campaign-level)
+- `decrypted_responses` - Decrypted responses with extracted metadata
+- `parsed_responses` - Parsed answers for analytics
+- `survey_tokens` - Campaign-level token management
 
--- Survey response statistics for analytics
-CREATE TABLE survey_response_statistics (
-  id SERIAL PRIMARY KEY,
-  survey_id VARCHAR REFERENCES surveys(id) ON DELETE CASCADE,
-  question_statistics JSONB,                  -- Per-question answer distributions
-  overall_statistics JSONB,                   -- Overall score distribution and averages
-  category_statistics JSONB,                  -- Category-based analysis
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(survey_id)
-);
+#### Analytics & Verification
+- `survey_analytics` - Campaign-level analytics
+- `teacher_performance` - Teacher performance tracking
+- `student_completion` - Student participation tracking
 
--- Public responses for curated survey display
-CREATE TABLE public_responses (
-  id VARCHAR PRIMARY KEY,
-  survey_id VARCHAR REFERENCES surveys(id) ON DELETE CASCADE,
-  response_id VARCHAR REFERENCES survey_responses(id) ON DELETE CASCADE,
-  is_positive BOOLEAN NOT NULL,
-  published_at TIMESTAMP DEFAULT NOW(),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(survey_id, response_id)
-);
-```
+> **📚 Complete Schema**: See [university-schema.sql](./database/university-schema.sql) for the full database structure with all tables, relationships, and indexes.
 
 ## Security Features
 
