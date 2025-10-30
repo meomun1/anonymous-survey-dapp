@@ -27,8 +27,12 @@ CREATE TABLE "teacher_logins" (
     "email" TEXT NOT NULL UNIQUE,
     "password_hash" TEXT NOT NULL,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "must_change_password" BOOLEAN NOT NULL DEFAULT false,
+    "teacher_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "teacher_logins_teacher_id_fkey" FOREIGN KEY ("teacher_id") REFERENCES "teachers"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- ============================================================================
@@ -106,7 +110,7 @@ CREATE TABLE "survey_campaigns" (
     "name" TEXT NOT NULL, -- e.g., "Fall 2024 Quality Survey Check"
     "type" TEXT NOT NULL CHECK ("type" IN ('course', 'event')), -- Explicit survey type
     "semester_id" TEXT NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'teachers_input', 'open', 'closed', 'published')),
+    "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'teachers_input', 'open', 'launched', 'closed', 'published')),
     "created_by" TEXT NOT NULL,
     "opened_at" TIMESTAMP(3),
     "closed_at" TIMESTAMP(3),
@@ -131,34 +135,38 @@ CREATE TABLE "survey_campaigns" (
     CONSTRAINT "survey_campaigns_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "admins"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
--- Course Assignments table (teacher-course assignments)
+-- Course Assignments table (teacher-course assignments per campaign)
 CREATE TABLE "course_assignments" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "teacher_id" TEXT NOT NULL,
     "course_id" TEXT NOT NULL,
+    "campaign_id" TEXT NOT NULL,
     "semester_id" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
     CONSTRAINT "course_assignments_teacher_id_fkey" FOREIGN KEY ("teacher_id") REFERENCES "teachers"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "course_assignments_course_id_fkey" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "course_assignments_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "course_assignments_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "semesters"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    UNIQUE("teacher_id", "course_id", "semester_id")
+    UNIQUE("teacher_id", "course_id", "campaign_id")
 );
 
--- Student Enrollments table (student-course enrollments)
+-- Student Enrollments table (student-course enrollments per campaign)
 CREATE TABLE "enrollments" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "student_id" TEXT NOT NULL,
     "course_id" TEXT NOT NULL,
+    "campaign_id" TEXT NOT NULL,
     "semester_id" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
     CONSTRAINT "enrollments_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "students"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "enrollments_course_id_fkey" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "enrollments_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "enrollments_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "semesters"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    UNIQUE("student_id", "course_id", "semester_id")
+    UNIQUE("student_id", "course_id", "campaign_id")
 );
 
 -- ============================================================================
@@ -187,7 +195,8 @@ CREATE TABLE "surveys" (
     
     CONSTRAINT "surveys_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "surveys_course_id_fkey" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "surveys_teacher_id_fkey" FOREIGN KEY ("teacher_id") REFERENCES "teachers"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT "surveys_teacher_id_fkey" FOREIGN KEY ("teacher_id") REFERENCES "teachers"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "surveys_campaign_course_teacher_unique" UNIQUE("campaign_id", "course_id", "teacher_id")
 );
 
 -- Survey Tokens table (campaign-level token management)
@@ -198,10 +207,11 @@ CREATE TABLE "survey_tokens" (
     "student_email" TEXT NOT NULL,
     "used" BOOLEAN NOT NULL DEFAULT false,
     "is_completed" BOOLEAN NOT NULL DEFAULT false,
+    "blockchain_submitted" BOOLEAN NOT NULL DEFAULT false,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "used_at" TIMESTAMP(3),
     "completed_at" TIMESTAMP(3),
-    
+
     CONSTRAINT "survey_tokens_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -361,10 +371,22 @@ CREATE INDEX "idx_courses_code" ON "courses"("code");
 -- Assignment and enrollment indexes
 CREATE INDEX "idx_course_assignments_teacher_id" ON "course_assignments"("teacher_id");
 CREATE INDEX "idx_course_assignments_course_id" ON "course_assignments"("course_id");
+CREATE INDEX "idx_course_assignments_campaign_id" ON "course_assignments"("campaign_id");
 CREATE INDEX "idx_course_assignments_semester_id" ON "course_assignments"("semester_id");
 CREATE INDEX "idx_enrollments_student_id" ON "enrollments"("student_id");
 CREATE INDEX "idx_enrollments_course_id" ON "enrollments"("course_id");
+CREATE INDEX "idx_enrollments_campaign_id" ON "enrollments"("campaign_id");
 CREATE INDEX "idx_enrollments_semester_id" ON "enrollments"("semester_id");
+
+-- Teacher login indexes (from migration 001)
+CREATE UNIQUE INDEX "idx_teacher_logins_teacher_id" ON "teacher_logins"("teacher_id");
+CREATE INDEX "idx_teacher_logins_email_active" ON "teacher_logins"("email") WHERE "is_active" = true;
+
+-- Performance indexes for Merkle root calculation (from migration 002)
+CREATE INDEX IF NOT EXISTS "idx_survey_responses_survey_id_commitment" ON "survey_responses"("survey_id") WHERE "commitment" IS NOT NULL;
+CREATE INDEX IF NOT EXISTS "idx_survey_responses_created_at" ON "survey_responses"("created_at");
+CREATE INDEX IF NOT EXISTS "idx_survey_responses_survey_commitment" ON "survey_responses"("survey_id", "commitment", "created_at") WHERE "commitment" IS NOT NULL;
+CREATE INDEX IF NOT EXISTS "idx_survey_tokens_campaign_completion" ON "survey_tokens"("campaign_id", "is_completed");
 
 -- ============================================================================
 -- TRIGGERS FOR AUTOMATIC UPDATED_AT

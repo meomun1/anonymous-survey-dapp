@@ -2,7 +2,9 @@ import db from '../config/database';
 import crypto from 'crypto';
 import { CryptoService } from './crypto.service';
 import { BlockchainService } from './blockchain.service';
+import { TokenService } from './token.service';
 const cryptoService = new CryptoService();
+const tokenService = new TokenService();
 
 /**
  * Service for managing survey responses and blind signatures
@@ -171,6 +173,12 @@ export class ResponseService {
     }
 
     const tokenData = tokenResult.rows[0];
+
+    // Check if already submitted to blockchain
+    if (tokenData.blockchain_submitted === true) {
+      throw new Error('Responses already submitted to blockchain');
+    }
+
     const campaignId = tokenData.campaign_id;
 
     // Get campaign details
@@ -184,6 +192,20 @@ export class ResponseService {
     }
 
     const campaign = campaignResult.rows[0];
+
+    // Validate all responses have required fields
+    for (let i = 0; i < responses.length; i++) {
+      const r = responses[i];
+      if (!r.surveyId) {
+        throw new Error(`Response ${i} is missing surveyId`);
+      }
+      if (!r.commitment) {
+        throw new Error(`Response ${i} (surveyId: ${r.surveyId}) is missing commitment`);
+      }
+      if (!r.encryptedData) {
+        throw new Error(`Response ${i} (surveyId: ${r.surveyId}) is missing encryptedData`);
+      }
+    }
 
     // Initialize blockchain service
     const blockchainService = new BlockchainService();
@@ -199,18 +221,13 @@ export class ResponseService {
         encryptedResponses
       );
 
-      // Store responses in database
-      for (const response of responses) {
-        await db.query(
-          `INSERT INTO survey_responses (id, campaign_id, encrypted_data, commitment, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, NOW(), NOW())`,
-          [crypto.randomUUID(), campaignId, response.encryptedData, response.commitment]
-        );
-      }
+      // DO NOT store in database here! Only blockchain.
+      // This prevents timing correlation that could de-anonymize students.
+      // Responses will be ingested from blockchain later when admin closes campaign.
 
-      // Mark token as completed
+      // Mark token as completed and blockchain_submitted
       await db.query(
-        'UPDATE survey_tokens SET is_completed = true, completed_at = NOW() WHERE token = $1',
+        'UPDATE survey_tokens SET is_completed = true, completed_at = NOW(), blockchain_submitted = true WHERE token = $1',
         [token]
       );
 
@@ -219,5 +236,30 @@ export class ResponseService {
       console.error('Blockchain submission failed:', error);
       throw new Error(`Failed to submit to blockchain: ${error.message}`);
     }
+  }
+
+  /**
+   * Get encrypted responses for a campaign (check if ingested)
+   */
+  async getEncryptedResponsesByCampaign(campaignId: string) {
+    const result = await db.query(
+      'SELECT * FROM survey_responses WHERE campaign_id = $1',
+      [campaignId]
+    );
+    return result.rows;
+  }
+
+  /**
+   * Get decrypted responses for a campaign (check if decrypted)
+   */
+  async getDecryptedResponsesByCampaign(campaignId: string) {
+    const result = await db.query(
+      `SELECT dr.*
+       FROM decrypted_responses dr
+       JOIN survey_responses sr ON dr.response_id = sr.id
+       WHERE sr.campaign_id = $1`,
+      [campaignId]
+    );
+    return result.rows;
   }
 } 

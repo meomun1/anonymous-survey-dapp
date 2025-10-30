@@ -41,13 +41,13 @@ export class TokenController {
   async validateToken(req: Request, res: Response) {
     try {
       const { token } = req.params;
-      
+
       const tokenData = await tokenService.validateCampaignToken(token);
-      
+
       if (!tokenData) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           error: 'Invalid token',
-          details: 'Token is invalid or already completed'
+          details: 'Token is invalid, campaign is not available, or already completed'
         });
       }
 
@@ -60,6 +60,37 @@ export class TokenController {
       });
     } catch (error) {
       res.status(500).json({ error: 'Failed to validate token' });
+    }
+  }
+
+  async verifyToken(req: Request, res: Response) {
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({ error: 'Token is required' });
+      }
+
+      const tokenData = await tokenService.validateCampaignToken(token);
+
+      if (!tokenData) {
+        return res.status(404).json({
+          error: 'Invalid token',
+          details: 'Token is invalid, campaign is not available, or already completed'
+        });
+      }
+
+      res.json({
+        valid: true,
+        tokenData: {
+          token: tokenData.token,
+          campaignId: tokenData.campaignId,
+          studentEmail: tokenData.studentEmail,
+          isCompleted: tokenData.isCompleted
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to verify token' });
     }
   }
 
@@ -82,7 +113,7 @@ export class TokenController {
     try {
       const { token } = req.params;
       const updatedToken = await tokenService.markCampaignTokenCompleted(token);
-      
+
       if (!updatedToken) {
         return res.status(404).json({ error: 'Token not found' });
       }
@@ -90,6 +121,21 @@ export class TokenController {
       res.json(updatedToken);
     } catch (error) {
       res.status(500).json({ error: 'Failed to mark token as completed' });
+    }
+  }
+
+  async markTokenBlockchainSubmitted(req: Request, res: Response) {
+    try {
+      const { token } = req.params;
+      const updatedToken = await tokenService.markTokenBlockchainSubmitted(token);
+
+      if (!updatedToken) {
+        return res.status(404).json({ error: 'Token not found' });
+      }
+
+      res.json(updatedToken);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to mark token as blockchain submitted' });
     }
   }
 
@@ -111,6 +157,34 @@ export class TokenController {
       res.json(tokens);
     } catch (error) {
       res.status(500).json({ error: 'Failed to get student tokens' });
+    }
+  }
+
+  async getStudentSurveys(req: Request, res: Response) {
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({ error: 'Token is required' });
+      }
+
+      // Validate the token
+      const tokenData = await tokenService.validateCampaignToken(token);
+
+      if (!tokenData) {
+        return res.status(404).json({ error: 'Invalid token' });
+      }
+
+      // Get all surveys for this student's token
+      const surveys = await surveyService.getStudentSurveys(token);
+
+      res.json({
+        surveys,
+        studentName: tokenData.studentEmail.split('@')[0] // Extract name from email
+      });
+    } catch (error) {
+      console.error('Failed to get student surveys:', error);
+      res.status(500).json({ error: 'Failed to get student surveys' });
     }
   }
 

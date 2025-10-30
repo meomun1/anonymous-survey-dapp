@@ -37,9 +37,55 @@ router.post('/campaign/generate', verifyToken, requireAdmin, tokenController.gen
 
 /**
  * @swagger
+ * /tokens/verify:
+ *   post:
+ *     summary: Verify a token (POST with body)
+ *     tags: [Tokens]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Token to verify
+ *     responses:
+ *       200:
+ *         description: Token verification result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 valid:
+ *                   type: boolean
+ *                 tokenData:
+ *                   type: object
+ *                   properties:
+ *                     token:
+ *                       type: string
+ *                     campaignId:
+ *                       type: string
+ *                     studentEmail:
+ *                       type: string
+ *                     isCompleted:
+ *                       type: boolean
+ *       400:
+ *         description: Token is required
+ *       404:
+ *         description: Invalid token
+ */
+router.post('/verify', tokenController.verifyToken.bind(tokenController));
+
+/**
+ * @swagger
  * /tokens/validate/{token}:
  *   get:
- *     summary: Validate a token
+ *     summary: Validate a token (GET with param)
  *     tags: [Tokens]
  *     parameters:
  *       - in: path
@@ -144,6 +190,27 @@ router.post('/:token/complete', tokenController.markTokenAsCompleted.bind(tokenC
 
 /**
  * @swagger
+ * /tokens/{token}/blockchain-submitted:
+ *   post:
+ *     summary: Mark token as blockchain submitted
+ *     tags: [Tokens]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Token to mark as blockchain submitted
+ *     responses:
+ *       200:
+ *         description: Token marked as blockchain submitted successfully
+ *       404:
+ *         description: Token not found
+ */
+router.post('/:token/blockchain-submitted', tokenController.markTokenBlockchainSubmitted.bind(tokenController));
+
+/**
+ * @swagger
  * /tokens/survey/{surveyId}:
  *   get:
  *     summary: Get all tokens for a survey
@@ -200,6 +267,38 @@ router.post('/:token/complete', tokenController.markTokenAsCompleted.bind(tokenC
  *         description: Tokens
  */
 router.get('/campaign/:campaignId', tokenController.getCampaignTokens.bind(tokenController));
+
+/**
+ * @swagger
+ * /tokens/student-surveys:
+ *   post:
+ *     summary: Get all surveys for a student by their token
+ *     tags: [Tokens]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Student surveys
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 surveys:
+ *                   type: array
+ *                 studentName:
+ *                   type: string
+ */
+router.post('/student-surveys', tokenController.getStudentSurveys.bind(tokenController));
 
 /**
  * @swagger

@@ -171,6 +171,22 @@ export class UniversityController {
     }
   }
 
+  async bulkImportTeachers(req: Request, res: Response) {
+    try {
+      const { teachers } = req.body;
+
+      if (!Array.isArray(teachers)) {
+        return res.status(400).json({ error: 'Teachers must be an array' });
+      }
+
+      const result = await universityService.bulkImportTeachers(teachers);
+      res.status(201).json(result);
+    } catch (error) {
+      console.error('Failed to bulk import teachers:', error);
+      res.status(500).json({ error: 'Failed to bulk import teachers' });
+    }
+  }
+
   // ============================================================================
   // COURSE MANAGEMENT
   // ============================================================================
@@ -256,6 +272,22 @@ export class UniversityController {
         return res.status(400).json({ error: error.message });
       }
       res.status(500).json({ error: 'Failed to delete course' });
+    }
+  }
+
+  async bulkImportCourses(req: Request, res: Response) {
+    try {
+      const { courses } = req.body;
+
+      if (!Array.isArray(courses)) {
+        return res.status(400).json({ error: 'Courses must be an array' });
+      }
+
+      const result = await universityService.bulkImportCourses(courses);
+      res.status(201).json(result);
+    } catch (error) {
+      console.error('Failed to bulk import courses:', error);
+      res.status(500).json({ error: 'Failed to bulk import courses' });
     }
   }
 
@@ -404,6 +436,45 @@ export class UniversityController {
         return res.status(404).json({ error: 'Semester not found' });
       }
       res.status(500).json({ error: 'Failed to get semester' });
+    }
+  }
+
+  async updateSemester(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { name, startDate, endDate, status } = req.body;
+
+      const semester = await universityService.updateSemester(id, {
+        name,
+        startDate,
+        endDate,
+        status,
+      });
+
+      res.json(semester);
+    } catch (error) {
+      console.error('Failed to update semester:', error);
+      if (error instanceof Error && error.message === 'Semester not found') {
+        return res.status(404).json({ error: 'Semester not found' });
+      }
+      res.status(500).json({ error: 'Failed to update semester' });
+    }
+  }
+
+  async deleteSemester(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const semester = await universityService.deleteSemester(id);
+      res.json(semester);
+    } catch (error) {
+      console.error('Failed to delete semester:', error);
+      if (error instanceof Error && error.message === 'Semester not found') {
+        return res.status(404).json({ error: 'Semester not found' });
+      }
+      if (error instanceof Error && error.message.includes('Cannot delete semester')) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: 'Failed to delete semester' });
     }
   }
 

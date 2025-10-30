@@ -46,30 +46,30 @@ export class SurveyService {
     }
     const studentId = studentRes.rows[0].id as string;
 
+    // 2.5) Verify campaign exists
     const campaignRes = await db.query(
-      `SELECT semester_id FROM survey_campaigns WHERE id = $1 LIMIT 1`,
+      `SELECT id FROM survey_campaigns WHERE id = $1 LIMIT 1`,
       [campaignId]
     );
     if (campaignRes.rowCount === 0) {
       throw new Error('Campaign not found for token');
     }
-    const semesterId = campaignRes.rows[0].semester_id as string;
 
-    // 3) Eligible surveys = surveys in this campaign for student's enrolled courses in semester
+    // 3) Eligible surveys = surveys in this campaign for student's enrolled courses
     const surveysRes = await db.query(
-      `SELECT 
-         s.*, 
-         c.name as course_name, c.code as course_code, 
+      `SELECT
+         s.*,
+         c.name as course_name, c.code as course_code,
          t.name as teacher_name,
          CASE WHEN scp.id IS NOT NULL THEN true ELSE false END as is_completed
        FROM surveys s
        LEFT JOIN courses c ON s.course_id = c.id
        LEFT JOIN teachers t ON s.teacher_id = t.id
-       JOIN enrollments e ON e.course_id = s.course_id AND e.semester_id = $2 AND e.student_id = $3
-       LEFT JOIN survey_completions scp ON scp.survey_id = s.id AND scp.student_email = $4
+       JOIN enrollments e ON e.course_id = s.course_id AND e.campaign_id = $1 AND e.student_id = $2
+       LEFT JOIN survey_completions scp ON scp.survey_id = s.id AND scp.student_email = $3
        WHERE s.campaign_id = $1
        ORDER BY c.code ASC, t.name ASC`,
-      [campaignId, semesterId, studentId, studentEmail]
+      [campaignId, studentId, studentEmail]
     );
 
     return surveysRes.rows.map((row: any) => ({
@@ -282,6 +282,47 @@ export class SurveyService {
       [campaignId]
     );
     return result.rows;
+  }
+
+  async getStudentSurveys(token: string) {
+    // Reuse the existing getSurveysForToken logic
+    const surveys = await this.getSurveysForToken(token);
+
+    // Get token info for additional data
+    const tokenRes = await db.query(
+      `SELECT id, token, used, completed_at FROM survey_tokens WHERE token = $1 LIMIT 1`,
+      [token]
+    );
+
+    if (tokenRes.rowCount === 0) {
+      return [];
+    }
+
+    const tokenData = tokenRes.rows[0];
+
+    // Get campaign name
+    const campaignRes = await db.query(
+      `SELECT name FROM survey_campaigns WHERE id = $1`,
+      [surveys[0]?.campaignId]
+    );
+
+    const campaignName = campaignRes.rows[0]?.name || '';
+
+    // Transform to match frontend expectations
+    return surveys.map(survey => ({
+      id: survey.id,
+      tokenId: tokenData.id,
+      token: tokenData.token,
+      courseCode: survey.courseCode,
+      courseName: survey.courseName,
+      campaignName: campaignName,
+      campaignId: survey.campaignId,
+      teacherId: survey.teacherId,
+      teacherName: survey.teacherName,
+      numQuestions: survey.totalQuestions || 25,
+      used: tokenData.used,
+      completedAt: tokenData.completed_at
+    }));
   }
 
   /**

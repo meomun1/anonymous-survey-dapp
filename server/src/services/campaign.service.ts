@@ -12,6 +12,26 @@ import { EmailService } from './email.service';
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
 /**
+ * Transform database row from snake_case to camelCase
+ */
+function transformCampaign(row: any) {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    status: row.status,
+    semesterId: row.semester_id,
+    semesterName: row.semester_name,
+    createdBy: row.created_by,
+    createdByName: row.created_by_name,
+    blockchainAddress: row.blockchain_address,
+    encryptedPrivateKey: row.encrypted_private_key,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+/**
  * Service for campaign-based survey management
  */
 export class CampaignService {
@@ -109,7 +129,7 @@ export class CampaignService {
       ]
     );
 
-    const campaign = result.rows[0];
+    let campaign = result.rows[0];
 
     // Create blockchain account if not in fallback mode
     if (!this.fallbackMode && this.blockchainService) {
@@ -138,7 +158,7 @@ export class CampaignService {
     // Clear cache
     await this.clearCampaignsCache();
 
-    return campaign;
+    return transformCampaign(campaign);
   }
 
   /**
@@ -191,11 +211,11 @@ export class CampaignService {
     query += ` ORDER BY sc.created_at DESC`;
 
     const result = await db.query(query, values);
-    const campaigns = result.rows;
-    
+    const campaigns = result.rows.map(transformCampaign);
+
     // Cache the result
     await redis.setex(cacheKey, CampaignService.CACHE_TTL, JSON.stringify(campaigns));
-    
+
     return campaigns;
   }
 
@@ -204,7 +224,7 @@ export class CampaignService {
    */
   async getCampaign(id: string) {
     const cacheKey = `${CampaignService.CAMPAIGN_CACHE_PREFIX}${id}`;
-    
+
     // Try cache first
     const cached = await redis.get(cacheKey);
     if (cached) {
@@ -224,11 +244,11 @@ export class CampaignService {
       throw new Error('Campaign not found');
     }
 
-    const campaign = result.rows[0];
-    
+    const campaign = transformCampaign(result.rows[0]);
+
     // Cache the result
     await redis.setex(cacheKey, CampaignService.CACHE_TTL, JSON.stringify(campaign));
-    
+
     return campaign;
   }
 
@@ -238,7 +258,7 @@ export class CampaignService {
   async updateCampaign(id: string, data: {
     name?: string;
     type?: 'course' | 'event';
-    status?: 'draft' | 'teachers_input' | 'open' | 'closed' | 'published';
+    status?: 'draft' | 'teachers_input' | 'open' | 'launched' | 'closed' | 'published';
   }) {
     const setClause = [];
     const values = [];
@@ -278,7 +298,7 @@ export class CampaignService {
     await this.clearCampaignCache(id);
     await this.clearCampaignsCache();
 
-    return result.rows[0];
+    return transformCampaign(result.rows[0]);
   }
 
   /**
@@ -311,7 +331,7 @@ export class CampaignService {
     await this.clearCampaignCache(id);
     await this.clearCampaignsCache();
 
-    return result.rows[0];
+    return transformCampaign(result.rows[0]);
   }
 
   // ============================================================================
@@ -342,20 +362,38 @@ export class CampaignService {
   }
 
   /**
-   * Close campaign (stop teacher input)
+   * Close campaign (stop teacher input OR stop accepting student responses)
    */
   async closeCampaign(id: string) {
-    const result = await db.query(
-      `UPDATE survey_campaigns 
-       SET status = 'open', closed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND status = 'teachers_input'
-       RETURNING *`,
+    // First check current status to determine target status
+    const currentCampaign = await db.query(
+      'SELECT status FROM survey_campaigns WHERE id = $1',
       [id]
     );
 
-    if (result.rowCount === 0) {
-      throw new Error('Campaign not found or not in teachers_input status');
+    if (currentCampaign.rowCount === 0) {
+      throw new Error('Campaign not found');
     }
+
+    const currentStatus = currentCampaign.rows[0].status;
+    let targetStatus: string;
+
+    // Determine target status based on current status
+    if (currentStatus === 'teachers_input') {
+      targetStatus = 'open';
+    } else if (currentStatus === 'launched') {
+      targetStatus = 'closed';
+    } else {
+      throw new Error(`Cannot close campaign from status: ${currentStatus}`);
+    }
+
+    const result = await db.query(
+      `UPDATE survey_campaigns
+       SET status = $2, closed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+      [id, targetStatus]
+    );
 
     // Clear cache
     await this.clearCampaignCache(id);
@@ -387,44 +425,60 @@ export class CampaignService {
 
       // Generate surveys from course assignments for course campaigns (delegate to SurveyService)
       if (campaign.type === 'course') {
-        const assignmentsResult = await client.query(
-          `SELECT ca.teacher_id, ca.course_id, ca.semester_id,
-                  t.name as teacher_name, c.name as course_name, c.code as course_code
-           FROM course_assignments ca
-           JOIN teachers t ON ca.teacher_id = t.id
-           JOIN courses c ON ca.course_id = c.id
-           WHERE ca.semester_id = $1`,
-          [campaign.semester_id]
+        // Check if surveys already exist for this campaign
+        const existingSurveysResult = await client.query(
+          'SELECT COUNT(*)::int as count FROM surveys WHERE campaign_id = $1',
+          [campaign.id]
         );
 
-        for (const assignment of assignmentsResult.rows) {
-          await this.surveyService.createSurvey({
-            campaignId: campaign.id,
-            title: `${assignment.course_name} - ${assignment.teacher_name}`,
-            description: `Course evaluation for ${assignment.course_code}`,
-            templateId: 'teaching_quality_25q',
-            courseId: assignment.course_id,
-            teacherId: assignment.teacher_id,
-            status: 'active'
-          });
+        if (existingSurveysResult.rows[0].count > 0) {
+          // Surveys already exist, skip creation
+          console.log(`⚠️ Surveys already exist for campaign ${campaign.id}, skipping creation`);
+        } else {
+          const assignmentsResult = await client.query(
+            `SELECT ca.teacher_id, ca.course_id, ca.campaign_id, ca.semester_id,
+                    t.name as teacher_name, c.name as course_name, c.code as course_code
+             FROM course_assignments ca
+             JOIN teachers t ON ca.teacher_id = t.id
+             JOIN courses c ON ca.course_id = c.id
+             WHERE ca.campaign_id = $1`,
+            [campaign.id]
+          );
+
+          console.log(`📝 Creating ${assignmentsResult.rowCount} surveys for campaign ${campaign.id}`);
+
+          for (const assignment of assignmentsResult.rows) {
+            await this.surveyService.createSurvey({
+              campaignId: campaign.id,
+              title: `${assignment.course_name} - ${assignment.teacher_name}`,
+              description: `Course evaluation for ${assignment.course_code}`,
+              templateId: 'teaching_quality_25q',
+              courseId: assignment.course_id,
+              teacherId: assignment.teacher_id,
+              status: 'active'
+            });
+          }
         }
       }
 
-      // Generate tokens for all enrolled students (delegate to TokenService)
+      // Generate tokens for all enrolled students in this campaign (campaign-specific)
       const enrollmentsResult = await client.query(
         `SELECT DISTINCT s.email
          FROM enrollments e
          JOIN students s ON e.student_id = s.id
-         WHERE e.semester_id = $1`,
-        [campaign.semester_id]
+         WHERE e.campaign_id = $1`,
+        [campaign.id]
       );
       const studentEmails = enrollmentsResult.rows.map((r: any) => r.email);
+
+      console.log(`🎫 Generating tokens for ${studentEmails.length} students in campaign ${campaign.id}`);
+
       await this.tokenService.generateCampaignTokens(campaign.id, studentEmails);
 
-      // Update campaign status
+      // Update campaign status to launched (surveys are now active for students)
       await client.query(
         'UPDATE survey_campaigns SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-        ['open', campaign.id]
+        ['launched', campaign.id]
       );
 
       await client.query('COMMIT');
@@ -434,6 +488,7 @@ export class CampaignService {
       await this.clearCampaignsCache();
 
       const surveysCountRes = await client.query('SELECT COUNT(*)::int AS cnt FROM surveys WHERE campaign_id = $1', [campaign.id]);
+
       // Send campaign emails (best-effort)
       try {
         await this.emailService.sendCampaignTokens(campaign.id);
@@ -441,11 +496,10 @@ export class CampaignService {
         console.warn('⚠️ Failed to send campaign emails:', e);
       }
 
-      return {
-        message: 'Campaign launched successfully',
-        surveysCreated: campaign.type === 'course' ? surveysCountRes.rows[0].cnt : 0,
-        tokensGenerated: studentEmails.length
-      };
+      // Fetch and return the updated campaign
+      const updatedCampaign = await this.getCampaign(campaign.id);
+
+      return updatedCampaign;
 
     } catch (error) {
       await client.query('ROLLBACK');
@@ -459,12 +513,24 @@ export class CampaignService {
    * Publish campaign results
    */
   async publishCampaign(id: string, merkleRoot: string) {
+    // First, count the actual responses for this campaign
+    const responseCount = await db.query(
+      'SELECT COUNT(*) as total FROM survey_responses WHERE campaign_id = $1',
+      [id]
+    );
+    const totalResponses = parseInt(responseCount.rows[0]?.total || '0');
+
+    // Update campaign with merkle root, published status, and accurate response count
     const result = await db.query(
-      `UPDATE survey_campaigns 
-       SET status = 'published', merkle_root = $1, published_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2 AND status = 'closed'
+      `UPDATE survey_campaigns
+       SET status = 'published',
+           merkle_root = $1,
+           total_responses = $2,
+           published_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3 AND status = 'closed'
        RETURNING *`,
-      [merkleRoot, id]
+      [merkleRoot, totalResponses, id]
     );
 
     if (result.rowCount === 0) {

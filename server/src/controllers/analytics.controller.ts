@@ -64,7 +64,7 @@ export class AnalyticsController {
   async verifyMerkleProof(req: Request, res: Response) {
     try {
       const { commitment, proof, root } = req.body;
-      
+
       if (!commitment || !proof || !root) {
         return res.status(400).json({ error: 'Commitment, proof, and root are required' });
       }
@@ -74,6 +74,42 @@ export class AnalyticsController {
     } catch (error) {
       console.error('Failed to verify Merkle proof:', error);
       res.status(500).json({ error: 'Failed to verify Merkle proof' });
+    }
+  }
+
+  async calculateCampaignMerkleRoot(req: Request, res: Response) {
+    try {
+      const { campaignId } = req.params;
+      const result = await analyticsService.calculateCampaignMerkleRoot(campaignId);
+      res.json(result);
+    } catch (error) {
+      console.error('Failed to calculate campaign Merkle root:', error);
+      if (error instanceof Error && error.message === 'Campaign not found') {
+        return res.status(404).json({ error: 'Campaign not found' });
+      }
+      if (error instanceof Error && error.message === 'No responses found for this campaign') {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: 'Failed to calculate campaign Merkle root' });
+    }
+  }
+
+  async getCampaignMerkleRoot(req: Request, res: Response) {
+    try {
+      const { campaignId } = req.params;
+      const result = await analyticsService.getCampaignMerkleRoot(campaignId);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Campaign not found') {
+        return res.status(404).json({ error: 'Campaign not found' });
+      }
+      if (error instanceof Error && error.message === 'Merkle root not calculated for this campaign') {
+        // This is expected - campaign hasn't been published yet, so no merkle root exists
+        // Don't log as error, just return 404
+        return res.status(404).json({ error: error.message });
+      }
+      console.error('Failed to get campaign Merkle root:', error);
+      res.status(500).json({ error: 'Failed to get campaign Merkle root' });
     }
   }
 

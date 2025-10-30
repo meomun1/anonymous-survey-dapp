@@ -87,4 +87,28 @@ export class ResponseController {
       });
     }
   }
+
+  // Get encrypted responses for a campaign
+  async getEncryptedResponses(req: Request, res: Response) {
+    try {
+      const { campaignId } = req.params;
+      const responses = await responseService.getEncryptedResponsesByCampaign(campaignId);
+      res.json(responses);
+    } catch (error: any) {
+      console.error('Failed to get encrypted responses:', error);
+      res.status(500).json({ error: 'Failed to get encrypted responses', details: error.message });
+    }
+  }
+
+  // Get decrypted responses for a campaign
+  async getDecryptedResponses(req: Request, res: Response) {
+    try {
+      const { campaignId } = req.params;
+      const responses = await responseService.getDecryptedResponsesByCampaign(campaignId);
+      res.json(responses);
+    } catch (error: any) {
+      console.error('Failed to get decrypted responses:', error);
+      res.status(500).json({ error: 'Failed to get decrypted responses', details: error.message });
+    }
+  }
 } 

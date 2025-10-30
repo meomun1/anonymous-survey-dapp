@@ -21,6 +21,43 @@ const responseController = new ResponseController();
  *         description: Ingest summary
  */
 router.post('/ingest/:campaignId', responseController.ingestFromBlockchain.bind(responseController));
+
+/**
+ * @swagger
+ * /responses/encrypted/{campaignId}:
+ *   get:
+ *     summary: Get encrypted responses for a campaign
+ *     tags: [Responses]
+ *     parameters:
+ *       - in: path
+ *         name: campaignId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of encrypted responses
+ */
+router.get('/encrypted/:campaignId', responseController.getEncryptedResponses.bind(responseController));
+
+/**
+ * @swagger
+ * /responses/decrypted/{campaignId}:
+ *   get:
+ *     summary: Get decrypted responses for a campaign
+ *     tags: [Responses]
+ *     parameters:
+ *       - in: path
+ *         name: campaignId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of decrypted responses
+ */
+router.get('/decrypted/:campaignId', responseController.getDecryptedResponses.bind(responseController));
+
 /**
  * @swagger
  * /responses/decrypt-campaign/{campaignId}:

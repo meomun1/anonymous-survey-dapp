@@ -160,7 +160,7 @@ pub struct CreateCampaign<'info> {
     #[account(
         init,
         payer = authority,
-        space = 8 + SurveyCampaign::calculate_size_for_responses(10), // Pre-allocate space for 10 responses
+        space = 8 + SurveyCampaign::calculate_size_for_responses(30), // Pre-allocate space for 10 responses
         seeds = [b"campaign", authority.key().as_ref(), campaign_id.as_bytes()],
         bump
     )]

@@ -179,6 +179,18 @@ router.post('/teachers', universityController.createTeacher);
 
 /**
  * @swagger
+ * /university/teachers/bulk-import:
+ *   post:
+ *     summary: Bulk import teachers
+ *     tags: [University]
+ *     responses:
+ *       201:
+ *         description: Imported
+ */
+router.post('/teachers/bulk-import', universityController.bulkImportTeachers);
+
+/**
+ * @swagger
  * /university/teachers:
  *   get:
  *     summary: Get all teachers
@@ -306,6 +318,18 @@ router.delete('/teachers/:id', universityController.deleteTeacher);
  *         description: Internal server error
  */
 router.post('/courses', universityController.createCourse);
+
+/**
+ * @swagger
+ * /university/courses/bulk-import:
+ *   post:
+ *     summary: Bulk import courses
+ *     tags: [University]
+ *     responses:
+ *       201:
+ *         description: Imported
+ */
+router.post('/courses/bulk-import', universityController.bulkImportCourses);
 
 /**
  * @swagger
@@ -604,6 +628,42 @@ router.get('/semesters', universityController.getSemesters);
  *         description: Semester
  */
 router.get('/semesters/:id', universityController.getSemester);
+
+/**
+ * @swagger
+ * /university/semesters/{id}:
+ *   put:
+ *     summary: Update semester
+ *     tags: [University]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Updated
+ */
+router.put('/semesters/:id', universityController.updateSemester);
+
+/**
+ * @swagger
+ * /university/semesters/{id}:
+ *   delete:
+ *     summary: Delete semester
+ *     tags: [University]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Deleted
+ */
+router.delete('/semesters/:id', universityController.deleteSemester);
 
 // ============================================================================
 // COURSE ASSIGNMENTS ROUTES

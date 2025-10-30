@@ -5,6 +5,21 @@ import crypto from 'crypto';
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
 /**
+ * Transform database row from snake_case to camelCase
+ */
+function transformSemester(row: any) {
+  return {
+    id: row.id,
+    name: row.name,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+/**
  * Service for university structure management (schools, teachers, courses, students)
  */
 export class UniversityService {
@@ -186,7 +201,7 @@ export class UniversityService {
     schoolId: string;
   }) {
     const teacherId = crypto.randomUUID();
-    
+
     const result = await db.query(
       `INSERT INTO teachers (id, name, email, school_id)
        VALUES ($1, $2, $3, $4)
@@ -194,10 +209,33 @@ export class UniversityService {
       [teacherId, data.name, data.email, data.schoolId]
     );
 
+    const teacher = result.rows[0];
+
+    // Auto-create teacher login credentials and send welcome email
+    const { TeacherLoginService } = await import('./teacher-login.service');
+    const teacherLoginService = new TeacherLoginService();
+
+    const loginResult = await teacherLoginService.createTeacherLogin(
+      teacherId,
+      data.email,
+      data.name
+    );
+
+    if (loginResult.success) {
+      console.log(`✅ Teacher login auto-created for: ${data.email}`);
+      if (loginResult.emailSent) {
+        console.log(`📧 Welcome email sent to: ${data.email}`);
+      } else if (loginResult.temporaryPassword) {
+        console.log(`⚠️ Email not sent. Temporary password: ${loginResult.temporaryPassword}`);
+      }
+    } else {
+      console.warn(`⚠️ Failed to auto-create login for ${data.email}: ${loginResult.error}`);
+    }
+
     // Clear cache
     await this.clearTeachersCache();
 
-    return result.rows[0];
+    return teacher;
   }
 
   /**
@@ -347,6 +385,52 @@ export class UniversityService {
     await this.clearTeachersCache();
 
     return result.rows[0];
+  }
+
+  /**
+   * Bulk import teachers from CSV data
+   */
+  async bulkImportTeachers(teachers: Array<{
+    name: string;
+    email: string;
+    schoolId: string;
+  }>) {
+    const client = await db.getClient();
+
+    try {
+      await client.query('BEGIN');
+
+      const importedTeachers = [];
+
+      for (const teacherData of teachers) {
+        const teacherId = crypto.randomUUID();
+
+        const result = await client.query(
+          `INSERT INTO teachers (id, name, email, school_id)
+           VALUES ($1, $2, $3, $4)
+           RETURNING *`,
+          [teacherId, teacherData.name, teacherData.email, teacherData.schoolId]
+        );
+
+        importedTeachers.push(result.rows[0]);
+      }
+
+      await client.query('COMMIT');
+
+      // Clear cache
+      await this.clearTeachersCache();
+
+      return {
+        imported: importedTeachers.length,
+        teachers: importedTeachers
+      };
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   // ============================================================================
@@ -539,6 +623,54 @@ export class UniversityService {
     return result.rows[0];
   }
 
+  /**
+   * Bulk import courses from CSV data
+   */
+  async bulkImportCourses(courses: Array<{
+    code: string;
+    name: string;
+    description?: string;
+    credits?: number;
+    schoolId: string;
+  }>) {
+    const client = await db.getClient();
+
+    try {
+      await client.query('BEGIN');
+
+      const importedCourses = [];
+
+      for (const courseData of courses) {
+        const courseId = crypto.randomUUID();
+
+        const result = await client.query(
+          `INSERT INTO courses (id, code, name, description, credits, school_id)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [courseId, courseData.code, courseData.name, courseData.description || null, courseData.credits || 3, courseData.schoolId]
+        );
+
+        importedCourses.push(result.rows[0]);
+      }
+
+      await client.query('COMMIT');
+
+      // Clear cache
+      await this.clearCoursesCache();
+
+      return {
+        imported: importedCourses.length,
+        courses: importedCourses
+      };
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   // ============================================================================
   // STUDENT MANAGEMENT
   // ============================================================================
@@ -724,30 +856,52 @@ export class UniversityService {
   // =========================================================================
   // COURSE ASSIGNMENTS (teacher ↔ course ↔ semester)
   // =========================================================================
-  async createCourseAssignment(data: { teacherId: string; courseId: string; semesterId: string; }) {
+  async createCourseAssignment(data: { teacherId: string; courseId: string; campaignId: string; semesterId: string; }) {
     const id = crypto.randomUUID();
     const result = await db.query(
-      `INSERT INTO course_assignments (id, teacher_id, course_id, semester_id, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `INSERT INTO course_assignments (id, teacher_id, course_id, campaign_id, semester_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        RETURNING *`,
-      [id, data.teacherId, data.courseId, data.semesterId]
+      [id, data.teacherId, data.courseId, data.campaignId, data.semesterId]
     );
     return result.rows[0];
   }
 
 
   async deleteCourseAssignment(id: string) {
+    // First, get the course assignment details
+    const assignment = await db.query(
+      'SELECT course_id, campaign_id FROM course_assignments WHERE id = $1',
+      [id]
+    );
+
+    if (assignment.rowCount === 0) {
+      throw new Error('Course assignment not found');
+    }
+
+    const { course_id, campaign_id } = assignment.rows[0];
+
+    // Delete related enrollments for this course in this campaign
+    const deleteEnrollments = await db.query(
+      'DELETE FROM enrollments WHERE course_id = $1 AND campaign_id = $2 RETURNING id',
+      [course_id, campaign_id]
+    );
+
+    console.log(`🗑️ Deleted ${deleteEnrollments.rowCount} enrollments for course ${course_id} in campaign ${campaign_id}`);
+
+    // Delete the course assignment
     const res = await db.query('DELETE FROM course_assignments WHERE id = $1 RETURNING *', [id]);
-    if (res.rowCount === 0) throw new Error('Course assignment not found');
+
     return res.rows[0];
   }
 
-  async getCourseAssignments(filters: { teacherId?: string; courseId?: string; semesterId?: string; }) {
+  async getCourseAssignments(filters: { teacherId?: string; courseId?: string; campaignId?: string; semesterId?: string; }) {
     const where: string[] = [];
     const values: any[] = [];
     let idx = 1;
     if (filters.teacherId) { where.push(`ca.teacher_id = $${idx++}`); values.push(filters.teacherId); }
     if (filters.courseId) { where.push(`ca.course_id = $${idx++}`); values.push(filters.courseId); }
+    if (filters.campaignId) { where.push(`ca.campaign_id = $${idx++}`); values.push(filters.campaignId); }
     if (filters.semesterId) { where.push(`ca.semester_id = $${idx++}`); values.push(filters.semesterId); }
     const result = await db.query(
       `SELECT ca.*, c.name as course_name, c.code as course_code, s.name as semester_name, t.name as teacher_name
@@ -782,18 +936,18 @@ export class UniversityService {
   // =========================================================================
   // ENROLLMENTS (student ↔ course ↔ semester)
   // =========================================================================
-  async createEnrollment(data: { studentId: string; courseId: string; semesterId: string; }) {
+  async createEnrollment(data: { studentId: string; courseId: string; campaignId: string; semesterId: string; }) {
     const id = crypto.randomUUID();
     const result = await db.query(
-      `INSERT INTO enrollments (id, student_id, course_id, semester_id, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `INSERT INTO enrollments (id, student_id, course_id, campaign_id, semester_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        RETURNING *`,
-      [id, data.studentId, data.courseId, data.semesterId]
+      [id, data.studentId, data.courseId, data.campaignId, data.semesterId]
     );
     return result.rows[0];
   }
 
-  async bulkImportEnrollments(rows: Array<{ studentId: string; courseId: string; semesterId: string; }>) {
+  async bulkImportEnrollments(rows: Array<{ studentId: string; courseId: string; campaignId: string; semesterId: string; }>) {
     const client = await db.getClient();
     try {
       await client.query('BEGIN');
@@ -801,10 +955,10 @@ export class UniversityService {
       for (const r of rows) {
         const id = crypto.randomUUID();
         const res = await client.query(
-          `INSERT INTO enrollments (id, student_id, course_id, semester_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `INSERT INTO enrollments (id, student_id, course_id, campaign_id, semester_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
            RETURNING *`,
-          [id, r.studentId, r.courseId, r.semesterId]
+          [id, r.studentId, r.courseId, r.campaignId, r.semesterId]
         );
         created.push(res.rows[0]);
       }
@@ -837,15 +991,17 @@ export class UniversityService {
     return res.rows[0];
   }
 
-  async getEnrollments(filters: { studentId?: string; courseId?: string; semesterId?: string; }) {
+  async getEnrollments(filters: { studentId?: string; courseId?: string; campaignId?: string; semesterId?: string; }) {
     const where: string[] = [];
     const values: any[] = [];
     let idx = 1;
     if (filters.studentId) { where.push(`e.student_id = $${idx++}`); values.push(filters.studentId); }
     if (filters.courseId) { where.push(`e.course_id = $${idx++}`); values.push(filters.courseId); }
+    if (filters.campaignId) { where.push(`e.campaign_id = $${idx++}`); values.push(filters.campaignId); }
     if (filters.semesterId) { where.push(`e.semester_id = $${idx++}`); values.push(filters.semesterId); }
     const res = await db.query(
-      `SELECT e.*, c.name as course_name, c.code as course_code, s.name as semester_name, st.name as student_name
+      `SELECT e.*, c.name as course_name, c.code as course_code, s.name as semester_name,
+              st.name as student_name, st.email as student_email
        FROM enrollments e
        JOIN courses c ON e.course_id = c.id
        JOIN semesters s ON e.semester_id = s.id
@@ -854,7 +1010,21 @@ export class UniversityService {
        ORDER BY c.code ASC`,
       values
     );
-    return res.rows;
+
+    // Transform to camelCase for frontend
+    return res.rows.map(row => ({
+      id: row.id,
+      studentId: row.student_id,
+      studentName: row.student_name,
+      studentEmail: row.student_email,
+      courseId: row.course_id,
+      semesterId: row.semester_id,
+      courseName: row.course_name,
+      courseCode: row.course_code,
+      semesterName: row.semester_name,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
   }
 
   async updateEnrollment(id: string, data: { studentId?: string; courseId?: string; semesterId?: string; }) {
@@ -934,7 +1104,7 @@ export class UniversityService {
     status?: string;
   }) {
     const semesterId = crypto.randomUUID();
-    
+
     const result = await db.query(
       `INSERT INTO semesters (id, name, start_date, end_date, status)
        VALUES ($1, $2, $3, $4, $5)
@@ -942,7 +1112,7 @@ export class UniversityService {
       [semesterId, data.name, data.startDate, data.endDate, data.status || 'planning']
     );
 
-    return result.rows[0];
+    return transformSemester(result.rows[0]);
   }
 
   /**
@@ -953,7 +1123,7 @@ export class UniversityService {
       'SELECT * FROM semesters ORDER BY start_date DESC'
     );
 
-    return result.rows;
+    return result.rows.map(transformSemester);
   }
 
   /**
@@ -969,7 +1139,87 @@ export class UniversityService {
       throw new Error('Semester not found');
     }
 
-    return result.rows[0];
+    return transformSemester(result.rows[0]);
+  }
+
+  /**
+   * Update semester
+   */
+  async updateSemester(id: string, data: {
+    name?: string;
+    startDate?: string;
+    endDate?: string;
+    status?: string;
+  }) {
+    const setClause = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (data.name !== undefined) {
+      setClause.push(`name = $${paramCount++}`);
+      values.push(data.name);
+    }
+    if (data.startDate !== undefined) {
+      setClause.push(`start_date = $${paramCount++}`);
+      values.push(data.startDate);
+    }
+    if (data.endDate !== undefined) {
+      setClause.push(`end_date = $${paramCount++}`);
+      values.push(data.endDate);
+    }
+    if (data.status !== undefined) {
+      setClause.push(`status = $${paramCount++}`);
+      values.push(data.status);
+    }
+
+    if (setClause.length === 0) {
+      throw new Error('No fields to update');
+    }
+
+    values.push(id);
+
+    const result = await db.query(
+      `UPDATE semesters SET ${setClause.join(', ')}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $${paramCount}
+       RETURNING *`,
+      values
+    );
+
+    if (result.rowCount === 0) {
+      throw new Error('Semester not found');
+    }
+
+    return transformSemester(result.rows[0]);
+  }
+
+  /**
+   * Delete semester
+   */
+  async deleteSemester(id: string) {
+    // Check if semester has campaigns, course assignments, or enrollments
+    const checkResult = await db.query(
+      `SELECT
+         (SELECT COUNT(*) FROM survey_campaigns WHERE semester_id = $1) as campaign_count,
+         (SELECT COUNT(*) FROM course_assignments WHERE semester_id = $1) as assignment_count,
+         (SELECT COUNT(*) FROM enrollments WHERE semester_id = $1) as enrollment_count`,
+      [id]
+    );
+
+    const counts = checkResult.rows[0];
+    if (parseInt(counts.campaign_count) > 0 || parseInt(counts.assignment_count) > 0 || parseInt(counts.enrollment_count) > 0) {
+      throw new Error('Cannot delete semester with existing campaigns, course assignments, or enrollments');
+    }
+
+    const result = await db.query(
+      'DELETE FROM semesters WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      throw new Error('Semester not found');
+    }
+
+    return transformSemester(result.rows[0]);
   }
 
   // ============================================================================
@@ -1029,15 +1279,16 @@ export class UniversityService {
    */
   async getTeacherAssignments(teacherId: string, semesterId?: string) {
     const cacheKey = `${UniversityService.CACHE_PREFIX}teacher_assignments:${teacherId}:${semesterId || 'all'}`;
-    
+
     // Try cache first
     const cached = await redis.get(cacheKey);
     if (cached) {
+      console.log('Returning cached teacher assignments');
       return JSON.parse(cached);
     }
 
     let query = `
-      SELECT 
+      SELECT
         ca.id,
         ca.teacher_id,
         ca.course_id,
@@ -1049,6 +1300,7 @@ export class UniversityService {
         c.description as course_description,
         c.credits as course_credits,
         c.school_id as course_school_id,
+        sc.name as school_name,
         s.id as semester_id,
         s.name as semester_name,
         s.start_date as semester_start_date,
@@ -1056,24 +1308,30 @@ export class UniversityService {
         s.status as semester_status
       FROM course_assignments ca
       JOIN courses c ON ca.course_id = c.id
+      JOIN schools sc ON c.school_id = sc.id
       JOIN semesters s ON ca.semester_id = s.id
       WHERE ca.teacher_id = $1
     `;
-    
+
     const values = [teacherId];
-    
+
     if (semesterId) {
       query += ' AND ca.semester_id = $2';
       values.push(semesterId);
     }
-    
+
     query += ' ORDER BY s.start_date DESC, c.code ASC';
 
+    console.log('Querying teacher assignments:', { teacherId, semesterId, values });
     const result = await db.query(query, values);
+    console.log('Query returned rows:', result.rows.length);
     const assignments = result.rows.map(row => ({
       id: row.id,
       teacherId: row.teacher_id,
       courseId: row.course_id,
+      courseCode: row.course_code,
+      courseName: row.course_name,
+      schoolName: row.school_name,
       semesterId: row.semester_id,
       createdAt: row.created_at,
       course: {

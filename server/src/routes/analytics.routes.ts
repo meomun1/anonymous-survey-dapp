@@ -105,6 +105,55 @@ router.post('/merkle/generate-proof', analyticsController.generateMerkleProof);
  */
 router.post('/merkle/verify-proof', analyticsController.verifyMerkleProof);
 
+/**
+ * @swagger
+ * /analytics/merkle/{campaignId}/calculate-root:
+ *   post:
+ *     summary: Calculate Merkle root for all responses in a campaign
+ *     tags: [Analytics]
+ *     parameters:
+ *       - in: path
+ *         name: campaignId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Merkle root data with metadata
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 campaignId:
+ *                   type: string
+ *                 merkleRoot:
+ *                   type: string
+ *                 totalCommitments:
+ *                   type: number
+ *                 calculatedAt:
+ *                   type: string
+ */
+router.post('/merkle/:campaignId/calculate-root', analyticsController.calculateCampaignMerkleRoot);
+
+/**
+ * @swagger
+ * /analytics/merkle/{campaignId}/root:
+ *   get:
+ *     summary: Get saved Merkle root for a campaign
+ *     tags: [Analytics]
+ *     parameters:
+ *       - in: path
+ *         name: campaignId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Saved Merkle root data
+ */
+router.get('/merkle/:campaignId/root', analyticsController.getCampaignMerkleRoot);
+
 // ============================================================================
 // CAMPAIGN ANALYTICS ROUTES
 // ============================================================================

@@ -30,16 +30,23 @@ export default function HomePage() {
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link 
-              href="/surveys/token" 
+            <Link
+              href="/login/student"
               className="group relative px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold text-lg shadow-2xl hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105 hover:-translate-y-1"
             >
               <span className="relative z-10">Student Portal</span>
               <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             </Link>
-            
-            <Link 
-              href="/login" 
+
+            <Link
+              href="/login/teacher"
+              className="px-8 py-4 bg-white/10 backdrop-blur-sm border border-white/30 text-white rounded-xl font-semibold text-lg hover:bg-white/20 transition-all duration-300 transform hover:scale-105"
+            >
+              Teacher Portal
+            </Link>
+
+            <Link
+              href="/login"
               className="px-8 py-4 bg-white/10 backdrop-blur-sm border border-white/30 text-white rounded-xl font-semibold text-lg hover:bg-white/20 transition-all duration-300 transform hover:scale-105"
             >
               Admin Portal
@@ -81,7 +88,7 @@ export default function HomePage() {
         </div>
 
         {/* Navigation Cards */}
-        <div className="grid md:grid-cols-2 gap-8 mb-20">
+        <div className="grid md:grid-cols-3 gap-8 mb-20">
           {/* Student Section */}
           <div className="group bg-gradient-to-br from-blue-500/20 to-indigo-600/20 backdrop-blur-lg p-8 rounded-3xl border border-blue-400/30 hover:border-blue-400/50 transition-all duration-300 transform hover:scale-105">
             <div className="flex items-center mb-6">
@@ -93,21 +100,38 @@ export default function HomePage() {
               </h2>
             </div>
             <p className="text-white/80 mb-8 text-lg leading-relaxed">
-              Participate in surveys completely anonymously using your unique cryptographic token.
+              Complete course evaluations anonymously using your unique survey token.
             </p>
             <div className="space-y-4">
-              <Link 
-                href="/surveys/token" 
+              <Link
+                href="/login/student"
                 className="block w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-4 rounded-xl font-semibold text-center hover:from-blue-600 hover:to-blue-700 transition-all duration-300 transform hover:scale-105"
               >
                 Enter Survey Token
               </Link>
-              {/* <Link 
-                href="/surveys/verify" 
-                className="block w-full bg-white/10 backdrop-blur-sm border border-white/30 text-white px-6 py-4 rounded-xl font-semibold text-center hover:bg-white/20 transition-all duration-300"
+            </div>
+          </div>
+
+          {/* Teacher Section */}
+          <div className="group bg-gradient-to-br from-purple-500/20 to-purple-600/20 backdrop-blur-lg p-8 rounded-3xl border border-purple-400/30 hover:border-purple-400/50 transition-all duration-300 transform hover:scale-105">
+            <div className="flex items-center mb-6">
+              <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-purple-600 rounded-2xl flex items-center justify-center mr-4">
+                <span className="text-xl">👨‍🏫</span>
+              </div>
+              <h2 className="text-3xl font-bold text-white">
+                For Teachers
+              </h2>
+            </div>
+            <p className="text-white/80 mb-8 text-lg leading-relaxed">
+              Manage course assignments and student enrollments for survey campaigns.
+            </p>
+            <div className="space-y-4">
+              <Link
+                href="/login/teacher"
+                className="block w-full bg-gradient-to-r from-purple-500 to-purple-600 text-white px-6 py-4 rounded-xl font-semibold text-center hover:from-purple-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105"
               >
-                Verify Your Response
-              </Link> */}
+                Teacher Login
+              </Link>
             </div>
           </div>
 
@@ -122,37 +146,16 @@ export default function HomePage() {
               </h2>
             </div>
             <p className="text-white/80 mb-8 text-lg leading-relaxed">
-              Create surveys, manage tokens, and view anonymized results with full control.
+              Create campaigns, manage university data, and view analytics with full control.
             </p>
             <div className="space-y-4">
-              <Link 
-                href="/login" 
+              <Link
+                href="/login"
                 className="block w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-6 py-4 rounded-xl font-semibold text-center hover:from-emerald-600 hover:to-emerald-700 transition-all duration-300 transform hover:scale-105"
               >
                 Admin Login
               </Link>
             </div>
-          </div>
-
-          {/* Public Section */}
-          <div className="group bg-gradient-to-br from-purple-500/20 to-indigo-600/20 backdrop-blur-lg p-8 rounded-3xl border border-purple-400/30 hover:border-purple-400/50 transition-all duration-300 transform hover:scale-105 md:col-span-2 md:max-w-2xl md:mx-auto">
-            <div className="flex items-center mb-6">
-              <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-purple-600 rounded-2xl flex items-center justify-center mr-4">
-                <span className="text-xl">🌐</span>
-              </div>
-              <h2 className="text-3xl font-bold text-white">
-                Public Results
-              </h2>
-            </div>
-            <p className="text-white/80 mb-8 text-lg leading-relaxed">
-              Browse curated survey results selected by administrators with full cryptographic verification.
-            </p>
-            <Link 
-              href="/surveys/public" 
-              className="block w-full bg-gradient-to-r from-purple-500 to-purple-600 text-white px-6 py-4 rounded-xl font-semibold text-center hover:from-purple-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105"
-            >
-              View Public Surveys
-            </Link>
           </div>
         </div>
 
@@ -162,39 +165,39 @@ export default function HomePage() {
             How It Works
           </h2>
           <p className="text-center text-white/60 mb-16 text-lg">
-            A seamless process that ensures anonymity while maintaining verifiable results
+            A seamless university-scale workflow ensuring anonymous course evaluations
           </p>
           <div className="grid md:grid-cols-4 gap-8">
             <div className="group text-center">
               <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300 shadow-2xl">
                 <span className="text-3xl">1️⃣</span>
               </div>
-              <h3 className="text-xl font-bold text-white mb-4">Token Distribution</h3>
-              <p className="text-white/70 leading-relaxed">Admin creates survey and distributes unique cryptographic tokens to participants</p>
+              <h3 className="text-xl font-bold text-white mb-4">Campaign Setup</h3>
+              <p className="text-white/70 leading-relaxed">Admin creates campaign, teachers assign courses and enroll students for the semester</p>
             </div>
-            
+
             <div className="group text-center">
               <div className="w-20 h-20 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300 shadow-2xl">
                 <span className="text-3xl">2️⃣</span>
               </div>
-              <h3 className="text-xl font-bold text-white mb-4">Anonymous Submission</h3>
-              <p className="text-white/70 leading-relaxed">Students submit responses using advanced blind signature cryptography</p>
+              <h3 className="text-xl font-bold text-white mb-4">Token Generation</h3>
+              <p className="text-white/70 leading-relaxed">System generates anonymous tokens for each student-course pairing with blind signatures</p>
             </div>
-            
+
             <div className="group text-center">
               <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300 shadow-2xl">
                 <span className="text-3xl">3️⃣</span>
               </div>
-              <h3 className="text-xl font-bold text-white mb-4">Blockchain Storage</h3>
-              <p className="text-white/70 leading-relaxed">Encrypted responses stored immutably on Solana blockchain network</p>
+              <h3 className="text-xl font-bold text-white mb-4">Anonymous Evaluation</h3>
+              <p className="text-white/70 leading-relaxed">Students submit encrypted course evaluations that are batched to blockchain</p>
             </div>
-            
+
             <div className="group text-center">
               <div className="w-20 h-20 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300 shadow-2xl">
                 <span className="text-3xl">4️⃣</span>
               </div>
-              <h3 className="text-xl font-bold text-white mb-4">Verifiable Results</h3>
-              <p className="text-white/70 leading-relaxed">Results published with cryptographic proofs for public verification</p>
+              <h3 className="text-xl font-bold text-white mb-4">Analytics & Verification</h3>
+              <p className="text-white/70 leading-relaxed">Results decrypted and analyzed with Merkle proofs for verification</p>
             </div>
           </div>
         </div>

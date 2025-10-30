@@ -210,7 +210,7 @@ interface SurveyCampaign {
   name: string;
   semester: string;
   type: 'course' | 'event';
-  status: 'draft' | 'teachers_input' | 'open' | 'closed';
+  status: 'draft' | 'teachers_input' | 'open' | 'launched' | 'closed' | 'published';
   createdBy: string;
   openedAt?: Date;
   closedAt?: Date;
