@@ -5,185 +5,110 @@ import { BlockchainService } from '../services/blockchain.service';
 const responseService = new ResponseService();
 
 export class ResponseController {
-  /**
-   * Generate blind signature for student
-   * This is the only server-side operation needed for anonymous submissions
-   */
-  async generateBlindSignature(req: Request, res: Response) {
+  // Ingest encrypted responses from blockchain (campaign-level)
+  async ingestFromBlockchain(req: Request, res: Response) {
     try {
-      const { surveyId } = req.params;
-      const { blindedMessage } = req.body;
-
-      if (!blindedMessage) {
-        return res.status(400).json({ error: 'Blinded message is required' });
-      }
-
-      const blindSignature = await responseService.generateBlindSignature(surveyId, blindedMessage);
-      
-      res.json({ blindSignature });
+      const { campaignId } = req.params;
+      const result = await responseService.ingestFromBlockchain(campaignId);
+      res.json({ success: true, inserted: result.inserted });
     } catch (error: any) {
-      console.error('Failed to generate blind signature:', error);
-      res.status(500).json({ 
-        error: 'Failed to generate blind signature',
-        details: error.message 
-      });
+      console.error('Failed to ingest responses:', error);
+      res.status(500).json({ error: 'Failed to ingest responses', details: error.message });
     }
   }
 
-  /**
-   * Submit encrypted response to blockchain
-   */
-  async submitToBlockchain(req: Request, res: Response) {
+  // Decrypt and parse all campaign responses
+  async decryptCampaignResponses(req: Request, res: Response) {
     try {
-      const { surveyId, encryptedAnswer, commitment, userKeyJson } = req.body;
-
-      if (!surveyId || !encryptedAnswer || !commitment) {
-        return res.status(400).json({ 
-          error: 'Survey ID, encrypted answer, and commitment are required' 
-        });
-      }
-
-      // Get survey shortId for blockchain operations (raw SQL)
-      const { db } = await import('../config/database');
-      const result = await db.query(
-        'SELECT short_id FROM surveys WHERE id = $1 LIMIT 1',
-        [surveyId]
-      );
-      const survey = result.rows[0] ? { shortId: result.rows[0].short_id } : null;
-
-      if (!survey) {
-        return res.status(404).json({ error: 'Survey not found' });
-      }
-
-      // Convert arrays back to buffers
-      const encryptedAnswerBuffer = Buffer.from(encryptedAnswer);
-      const commitmentBuffer = Buffer.from(commitment, 'hex');
-
-      let signature: string;
-
-      // Lazily instantiate blockchain service with error handling
-      let blockchainService: BlockchainService | null = null;
-      try {
-        blockchainService = new BlockchainService();
-      } catch (e: any) {
-        console.warn('⚠️ Blockchain service unavailable:', e?.message || e);
-        // If fallback mode is desired, ensure SOLANA_FALLBACK_MODE is true
-        if (process.env.SOLANA_FALLBACK_MODE !== 'true') {
-          return res.status(500).json({
-            error: 'Blockchain service initialization failed',
-            details: e?.message || 'Unknown error'
-          });
-        }
-      }
-
-      if (userKeyJson) {
-        // Use provided user keypair - pass shortId to blockchain service
-        signature = await blockchainService!.submitResponseWithUserJson(
-          survey.shortId,
-          commitmentBuffer,
-          encryptedAnswerBuffer,
-          userKeyJson
-        );
-      } else {
-        // Use the authority (school's wallet) for submission since:
-        // 1. School pays all transaction costs
-        // 2. System is anonymous - no need for separate user keys
-        // 3. Authority has sufficient SOL (500M+ in test environment)
-        signature = await blockchainService!.submitResponseAsAuthority(
-          survey.shortId,
-          commitmentBuffer,
-          encryptedAnswerBuffer
-        );
-      }
-
-      res.json({ 
-        success: true, 
-        transactionSignature: signature,
-        message: 'Response successfully submitted to blockchain'
-      });
+      const { campaignId } = req.params;
+      const result = await responseService.decryptCampaignResponses(campaignId);
+      res.json({ success: true, processed: result.processed });
     } catch (error: any) {
-      console.error('Failed to submit response to blockchain:', error);
-      res.status(500).json({ 
-        error: 'Failed to submit response to blockchain',
-        details: error.message 
-      });
+      console.error('Failed to decrypt campaign responses:', error);
+      res.status(500).json({ error: 'Failed to decrypt campaign responses', details: error.message });
     }
   }
 
-  async getSurveyResponses(req: Request, res: Response) {
+  // Fetch parsed responses for a survey
+  async getParsedResponsesBySurvey(req: Request, res: Response) {
     try {
       const { surveyId } = req.params;
-      const responses = await responseService.getSurveyResponses(surveyId);
-      res.json({ 
-        responses: responses,
-        total: responses.length 
-      });
+      const rows = await responseService.getParsedResponsesBySurvey(surveyId);
+      res.json({ total: rows.length, rows });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to get survey responses' });
+      res.status(500).json({ error: 'Failed to get parsed responses' });
     }
   }
 
-  /**
-   * Decrypt all responses for a survey from blockchain
-   */
-  async decryptAllResponses(req: Request, res: Response) {
+  // Lookup by commitment (campaign-level tables)
+  async getResponseByCommitment(req: Request, res: Response) {
     try {
-      const { surveyId } = req.params;
-      const result = await responseService.decryptAllSurveyResponses(surveyId);
-      res.json({ 
-        success: true,
-        processed: result.processed,
-        message: `Successfully decrypted ${result.processed} responses`
-      });
-    } catch (error: any) {
-      console.error('Failed to decrypt all responses:', error);
-      res.status(500).json({ 
-        error: 'Failed to decrypt all responses',
-        details: error.message 
-      });
-    }
-  }
-
-  async getResponseByCommitmentHash(req: Request, res: Response) {
-    try {
-      const { commitmentHash } = req.params;
-      const response = await responseService.getResponseByCommitmentHash(commitmentHash);
-      
-      if (!response) {
-        return res.status(404).json({ error: 'Response not found' });
-      }
-
-      res.json(response);
+      const { commitmentHex } = req.params;
+      const row = await responseService.getResponseByCommitment(commitmentHex);
+      if (!row) return res.status(404).json({ error: 'Response not found' });
+      res.json(row);
     } catch (error) {
-      res.status(500).json({ error: 'Failed to get response' });
+      res.status(500).json({ error: 'Failed to get response by commitment' });
     }
   }
 
-  async getResponseStats(req: Request, res: Response) {
-    try {
-      const { surveyId } = req.params;
-      const stats = await responseService.getResponseStats(surveyId);
-      res.json(stats);
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to get response stats' });
-    }
-  }
-
-  /**
-   * Verify response integrity
-   */
+  // Verify integrity of a decrypted response
   async verifyResponseIntegrity(req: Request, res: Response) {
     try {
-      const { responseId } = req.params;
-      const isValid = await responseService.verifyResponseIntegrity(responseId);
-      
+      const { decryptedResponseId } = req.params;
+      const isValid = await responseService.verifyResponseIntegrity(decryptedResponseId);
       res.json({ isValid });
     } catch (error: any) {
       console.error('Failed to verify response integrity:', error);
+      res.status(500).json({ error: 'Failed to verify response integrity', details: error.message });
+    }
+  }
+
+  // Submit student responses to blockchain
+  async submitStudentResponses(req: Request, res: Response) {
+    try {
+      const { token, responses } = req.body;
+      
+      if (!token || !Array.isArray(responses) || responses.length === 0) {
+        return res.status(400).json({ error: 'Token and responses array are required' });
+      }
+
+      const result = await responseService.submitStudentResponses(token, responses);
+      res.json({
+        success: true,
+        transactionHash: result.transactionHash,
+        message: 'Responses submitted successfully to blockchain'
+      });
+    } catch (error: any) {
+      console.error('Failed to submit student responses:', error);
       res.status(500).json({ 
-        error: 'Failed to verify response integrity',
+        error: 'Failed to submit responses to blockchain', 
         details: error.message 
       });
+    }
+  }
+
+  // Get encrypted responses for a campaign
+  async getEncryptedResponses(req: Request, res: Response) {
+    try {
+      const { campaignId } = req.params;
+      const responses = await responseService.getEncryptedResponsesByCampaign(campaignId);
+      res.json(responses);
+    } catch (error: any) {
+      console.error('Failed to get encrypted responses:', error);
+      res.status(500).json({ error: 'Failed to get encrypted responses', details: error.message });
+    }
+  }
+
+  // Get decrypted responses for a campaign
+  async getDecryptedResponses(req: Request, res: Response) {
+    try {
+      const { campaignId } = req.params;
+      const responses = await responseService.getDecryptedResponsesByCampaign(campaignId);
+      res.json(responses);
+    } catch (error: any) {
+      console.error('Failed to get decrypted responses:', error);
+      res.status(500).json({ error: 'Failed to get decrypted responses', details: error.message });
     }
   }
 } 

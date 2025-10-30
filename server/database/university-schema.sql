@@ -27,8 +27,12 @@ CREATE TABLE "teacher_logins" (
     "email" TEXT NOT NULL UNIQUE,
     "password_hash" TEXT NOT NULL,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "must_change_password" BOOLEAN NOT NULL DEFAULT false,
+    "teacher_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "teacher_logins_teacher_id_fkey" FOREIGN KEY ("teacher_id") REFERENCES "teachers"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- ============================================================================
@@ -52,6 +56,7 @@ CREATE TABLE "students" (
     "name" TEXT NOT NULL,
     "student_id" TEXT NOT NULL UNIQUE, -- University student ID
     "school_id" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'active' CHECK ("status" IN ('active', 'graduated', 'transferred', 'suspended', 'withdrawn')),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -60,22 +65,20 @@ CREATE TABLE "students" (
 
 -- Teachers table
 CREATE TABLE "teachers" (
-    "id" TEXT NOT NULL PRIMARY KEY, -- Teacher ID (admin-defined format)
+    "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
     "email" TEXT NOT NULL UNIQUE,
     "school_id" TEXT NOT NULL,
-    "login_id" TEXT NOT NULL UNIQUE, -- Links to teacher_logins
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
-    CONSTRAINT "teachers_school_id_fkey" FOREIGN KEY ("school_id") REFERENCES "schools"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "teachers_login_id_fkey" FOREIGN KEY ("login_id") REFERENCES "teacher_logins"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT "teachers_school_id_fkey" FOREIGN KEY ("school_id") REFERENCES "schools"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- Courses table
 CREATE TABLE "courses" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "code" TEXT NOT NULL UNIQUE, -- Course code (admin-defined format, e.g., "CS101")
+    "code" TEXT NOT NULL UNIQUE, -- e.g., "CS101", "MATH201"
     "name" TEXT NOT NULL,
     "description" TEXT,
     "credits" INTEGER NOT NULL DEFAULT 3,
@@ -107,22 +110,24 @@ CREATE TABLE "survey_campaigns" (
     "name" TEXT NOT NULL, -- e.g., "Fall 2024 Quality Survey Check"
     "type" TEXT NOT NULL CHECK ("type" IN ('course', 'event')), -- Explicit survey type
     "semester_id" TEXT NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'teachers_input', 'open', 'closed')),
-    "created_by" TEXT NOT NULL, -- Admin user ID
+    "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'teachers_input', 'open', 'launched', 'closed', 'published')),
+    "created_by" TEXT NOT NULL,
     "opened_at" TIMESTAMP(3),
     "closed_at" TIMESTAMP(3),
-    -- Cryptographic settings (inherited by all surveys in campaign)
-    "blind_signature_public_key" TEXT NOT NULL,
-    "encryption_public_key" TEXT NOT NULL,
-    "blind_signature_private_key" TEXT NOT NULL,
-    "encryption_private_key" TEXT NOT NULL,
-    -- Campaign-level statistics
-    "merkle_root" TEXT,
-    "is_published" BOOLEAN NOT NULL DEFAULT false,
     "published_at" TIMESTAMP(3),
+    
+    -- Cryptographic keys (moved from individual surveys to campaigns)
+    "blind_signature_public_key" TEXT NOT NULL, -- Base64 encoded RSA public key for blind signatures
+    "encryption_public_key" TEXT NOT NULL,      -- Base64 encoded RSA public key for encryption
+    "blind_signature_private_key" TEXT NOT NULL, -- Base64 encoded RSA private key for blind signatures (encrypted)
+    "encryption_private_key" TEXT NOT NULL,      -- Base64 encoded RSA private key for encryption (encrypted)
+    
+    -- Blockchain integration
+    "blockchain_address" TEXT, -- Address of the campaign on the blockchain
+    "merkle_root" TEXT,        -- Merkle root for verification (calculated off-chain)
     "total_responses" INTEGER NOT NULL DEFAULT 0,
-    "blockchain_address" TEXT,
     "is_public_enabled" BOOLEAN NOT NULL DEFAULT false,
+    
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -130,323 +135,264 @@ CREATE TABLE "survey_campaigns" (
     CONSTRAINT "survey_campaigns_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "admins"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
--- Course Assignments table (created when teacher chooses course and confirms student list)
+-- Course Assignments table (teacher-course assignments per campaign)
 CREATE TABLE "course_assignments" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "teacher_id" TEXT NOT NULL,
     "course_id" TEXT NOT NULL,
-    "semester_id" TEXT NOT NULL,
     "campaign_id" TEXT NOT NULL,
-    "students_input_completed" BOOLEAN NOT NULL DEFAULT false,
-    "students_input_completed_at" TIMESTAMP(3),
+    "semester_id" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
     CONSTRAINT "course_assignments_teacher_id_fkey" FOREIGN KEY ("teacher_id") REFERENCES "teachers"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "course_assignments_course_id_fkey" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "course_assignments_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "semesters"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "course_assignments_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "course_assignments_unique" UNIQUE ("teacher_id", "course_id", "semester_id", "campaign_id")
+    CONSTRAINT "course_assignments_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "semesters"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    UNIQUE("teacher_id", "course_id", "campaign_id")
 );
 
--- Enrollments table (created when teacher adds students to their course)
+-- Student Enrollments table (student-course enrollments per campaign)
 CREATE TABLE "enrollments" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "student_id" TEXT NOT NULL,
     "course_id" TEXT NOT NULL,
+    "campaign_id" TEXT NOT NULL,
     "semester_id" TEXT NOT NULL,
-    "course_assignment_id" TEXT NOT NULL, -- Links to course_assignments
-    "enrolled_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
     CONSTRAINT "enrollments_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "students"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "enrollments_course_id_fkey" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "enrollments_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "enrollments_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "semesters"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "enrollments_course_assignment_id_fkey" FOREIGN KEY ("course_assignment_id") REFERENCES "course_assignments"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "enrollments_unique" UNIQUE ("student_id", "course_id", "semester_id")
+    UNIQUE("student_id", "course_id", "campaign_id")
 );
 
 -- ============================================================================
--- SURVEY MANAGEMENT TABLES
+-- SURVEY MANAGEMENT TABLES (Lightweight - inherit crypto from campaigns)
 -- ============================================================================
 
--- Surveys table (lightweight units, inherit crypto settings from campaign)
+-- Surveys table (lightweight units within campaigns)
 CREATE TABLE "surveys" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "short_id" TEXT NOT NULL UNIQUE,
+    "campaign_id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "description" TEXT,
-    "template_id" TEXT NOT NULL DEFAULT 'teaching_quality_25q',
-    "total_questions" INTEGER NOT NULL DEFAULT 25,
-    "campaign_id" TEXT NOT NULL,
-    "course_id" TEXT, -- NULL for event surveys
-    "teacher_id" TEXT, -- NULL for event surveys
-    "semester_id" TEXT NOT NULL,
+    "template_id" TEXT NOT NULL, -- Template identifier (e.g., 'teaching_quality_25q')
+    "total_questions" INTEGER,   -- Number of questions from template
+    
+    -- Course/Teacher associations (nullable for event surveys)
+    "course_id" TEXT,            -- NULL for event surveys
+    "teacher_id" TEXT,           -- NULL for event surveys
+    
+    "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'active', 'closed', 'published')),
     "total_responses" INTEGER NOT NULL DEFAULT 0,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "opened_at" TIMESTAMP(3),
+    "closed_at" TIMESTAMP(3),
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT "surveys_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "surveys_course_id_fkey" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "surveys_teacher_id_fkey" FOREIGN KEY ("teacher_id") REFERENCES "teachers"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "surveys_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "semesters"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    -- Ensure course/teacher only required for course surveys
-    CONSTRAINT "surveys_course_survey_check" CHECK (
-        (campaign_id IN (SELECT id FROM survey_campaigns WHERE type = 'course') AND course_id IS NOT NULL AND teacher_id IS NOT NULL) OR
-        (campaign_id IN (SELECT id FROM survey_campaigns WHERE type = 'event') AND course_id IS NULL AND teacher_id IS NULL)
-    )
+    CONSTRAINT "surveys_campaign_course_teacher_unique" UNIQUE("campaign_id", "course_id", "teacher_id")
 );
 
--- Survey tokens table (one per student per campaign)
+-- Survey Tokens table (campaign-level token management)
 CREATE TABLE "survey_tokens" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "token" TEXT NOT NULL UNIQUE,
-    "student_email" TEXT NOT NULL,
     "campaign_id" TEXT NOT NULL,
-    "semester_id" TEXT NOT NULL,
+    "student_email" TEXT NOT NULL,
     "used" BOOLEAN NOT NULL DEFAULT false,
-    "used_at" TIMESTAMP(3),
-    "completed" BOOLEAN NOT NULL DEFAULT false,
-    "completed_at" TIMESTAMP(3),
+    "is_completed" BOOLEAN NOT NULL DEFAULT false,
+    "blockchain_submitted" BOOLEAN NOT NULL DEFAULT false,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT "survey_tokens_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "survey_tokens_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "semesters"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "used_at" TIMESTAMP(3),
+    "completed_at" TIMESTAMP(3),
+
+    CONSTRAINT "survey_tokens_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
--- Individual survey completion tracking (for detailed participation analytics)
+-- Survey Completions table (tracks individual survey completion)
 CREATE TABLE "survey_completions" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "survey_id" TEXT NOT NULL,
-    "campaign_id" TEXT NOT NULL,
     "student_email" TEXT NOT NULL,
-    "token_id" TEXT NOT NULL,
-    "completed" BOOLEAN NOT NULL DEFAULT false,
-    "completed_at" TIMESTAMP(3),
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "survey_id" TEXT NOT NULL,
+    "completed_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT "survey_completions_survey_id_fkey" FOREIGN KEY ("survey_id") REFERENCES "surveys"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "survey_completions_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "survey_completions_token_id_fkey" FOREIGN KEY ("token_id") REFERENCES "survey_tokens"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    UNIQUE ("survey_id", "student_email")
+    UNIQUE("student_email", "survey_id")
 );
 
--- Survey responses table (encrypted responses from blockchain)
+-- ============================================================================
+-- RESPONSE STORAGE TABLES (Campaign-level storage)
+-- ============================================================================
+
+-- Survey Responses table (stores encrypted data from blockchain - campaign level only)
 CREATE TABLE "survey_responses" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "campaign_id" TEXT NOT NULL,
-    "encrypted_data" TEXT NOT NULL, -- Encrypted response from blockchain
-    "commitment" TEXT NOT NULL UNIQUE, -- Hash for verification
-    "submitted_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "blockchain_tx_id" TEXT,
+    "campaign_id" TEXT NOT NULL, -- Only campaign-level info (NO survey_id)
+    "encrypted_data" TEXT NOT NULL, -- From blockchain
+    "commitment" TEXT NOT NULL UNIQUE,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT "survey_responses_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
--- Decrypted responses table (after decryption process)
+-- Decrypted Responses table (stores decrypted answer_string and extracts survey_id)
 CREATE TABLE "decrypted_responses" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "survey_response_id" TEXT NOT NULL,
-    "survey_id" TEXT NOT NULL, -- Extracted from answer_string
-    "campaign_id" TEXT NOT NULL,
+    "response_id" TEXT NOT NULL,
     "answer_string" TEXT NOT NULL, -- "surveyId|courseCode|teacherId|123451...123"
-    "decrypted_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT "decrypted_responses_survey_response_id_fkey" FOREIGN KEY ("survey_response_id") REFERENCES "survey_responses"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "decrypted_responses_survey_id_fkey" FOREIGN KEY ("survey_id") REFERENCES "surveys"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "decrypted_responses_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE
-);
-
--- ============================================================================
--- ANALYTICS AND PERFORMANCE TRACKING TABLES
--- ============================================================================
-
--- Parsed responses for analytics (parsed from decrypted answer_string)
-CREATE TABLE "parsed_responses" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "decrypted_response_id" TEXT NOT NULL,
-    "survey_id" TEXT NOT NULL,
-    "campaign_id" TEXT NOT NULL,
-    "course_code" TEXT NOT NULL, -- Extracted from answer_string
-    "teacher_id" TEXT NOT NULL, -- Extracted from answer_string
-    "answers" INTEGER[] NOT NULL, -- [1,2,3,4,5,1...] (25 numbers)
-    "submitted_at" TIMESTAMP(3) NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT "parsed_responses_decrypted_response_id_fkey" FOREIGN KEY ("decrypted_response_id") REFERENCES "decrypted_responses"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "parsed_responses_survey_id_fkey" FOREIGN KEY ("survey_id") REFERENCES "surveys"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "parsed_responses_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "parsed_responses_teacher_id_fkey" FOREIGN KEY ("teacher_id") REFERENCES "teachers"("id") ON DELETE CASCADE ON UPDATE CASCADE
-);
-
--- Survey analytics (aggregated statistics)
-CREATE TABLE "survey_analytics" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "survey_id" TEXT NOT NULL,
-    "campaign_id" TEXT NOT NULL,
-    "total_responses" INTEGER NOT NULL DEFAULT 0,
-    "average_score" DECIMAL(5,2) NOT NULL DEFAULT 0.00,
-    "score_distribution" JSONB NOT NULL DEFAULT '{}', -- {1: 0, 2: 1, 3: 5, 4: 5, 5: 14}
-    "question_statistics" JSONB NOT NULL DEFAULT '{}', -- Question-level statistics
-    "category_statistics" JSONB NOT NULL DEFAULT '{}', -- Category-level statistics
-    "generated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "survey_id" TEXT NOT NULL, -- Extracted from answer_string
+    "course_code" TEXT NOT NULL,
+    "teacher_id" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
-    CONSTRAINT "survey_analytics_survey_id_fkey" FOREIGN KEY ("survey_id") REFERENCES "surveys"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "survey_analytics_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT "decrypted_responses_response_id_fkey" FOREIGN KEY ("response_id") REFERENCES "survey_responses"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
--- Teacher performance analytics
+-- Parsed Responses table (stores parsed answers for analytics)
+CREATE TABLE "parsed_responses" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "decrypted_response_id" TEXT NOT NULL,
+    "survey_id" TEXT NOT NULL, -- From decrypted_responses
+    "course_code" TEXT NOT NULL,
+    "teacher_id" TEXT NOT NULL,
+    "answers" INTEGER[] NOT NULL, -- [1,2,3,4,5,1...] (25 numbers)
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT "parsed_responses_decrypted_response_id_fkey" FOREIGN KEY ("decrypted_response_id") REFERENCES "decrypted_responses"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- ============================================================================
+-- ANALYTICS TABLES
+-- ============================================================================
+
+-- Survey Analytics table (campaign-level analytics)
+CREATE TABLE "survey_analytics" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "campaign_id" TEXT NOT NULL,
+    "question_statistics" JSONB, -- Per-question answer distributions
+    "overall_statistics" JSONB,  -- Overall score distribution and averages
+    "category_statistics" JSONB, -- Category-based analysis
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT "survey_analytics_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    UNIQUE("campaign_id")
+);
+
+-- Teacher Performance table (aggregated teacher performance across campaigns)
 CREATE TABLE "teacher_performance" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "teacher_id" TEXT NOT NULL,
     "campaign_id" TEXT NOT NULL,
-    "semester_id" TEXT NOT NULL,
-    "total_surveys" INTEGER NOT NULL DEFAULT 0,
-    "total_responses" INTEGER NOT NULL DEFAULT 0,
-    "average_score" DECIMAL(5,2) NOT NULL DEFAULT 0.00,
-    "response_rate" DECIMAL(5,2) NOT NULL DEFAULT 0.00, -- Percentage of expected responses
-    "category_averages" JSONB NOT NULL DEFAULT '{}', -- Category-level averages
-    "input_completion_status" TEXT NOT NULL DEFAULT 'incomplete' CHECK ("input_completion_status" IN ('complete', 'incomplete', 'partial')),
-    "generated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "average_score" DECIMAL(5,2) NOT NULL,
+    "total_responses" INTEGER NOT NULL,
+    "score_distribution" JSONB NOT NULL, -- Distribution of scores across questions
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT "teacher_performance_teacher_id_fkey" FOREIGN KEY ("teacher_id") REFERENCES "teachers"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "teacher_performance_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "teacher_performance_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "semesters"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "teacher_performance_unique" UNIQUE ("teacher_id", "campaign_id", "semester_id")
+    UNIQUE("teacher_id", "campaign_id")
 );
 
--- Student completion tracking
+-- Student Completion table (student participation tracking)
 CREATE TABLE "student_completion" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "student_id" TEXT NOT NULL,
+    "student_email" TEXT NOT NULL,
     "campaign_id" TEXT NOT NULL,
-    "semester_id" TEXT NOT NULL,
-    "total_enrolled_courses" INTEGER NOT NULL DEFAULT 0,
-    "completed_surveys" INTEGER NOT NULL DEFAULT 0,
-    "completion_rate" DECIMAL(5,2) NOT NULL DEFAULT 0.00,
-    "token_used" BOOLEAN NOT NULL DEFAULT false,
-    "token_completed" BOOLEAN NOT NULL DEFAULT false,
-    "last_activity" TIMESTAMP(3),
+    "total_surveys" INTEGER NOT NULL,
+    "completed_surveys" INTEGER NOT NULL,
+    "completion_rate" DECIMAL(5,2) NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
-    CONSTRAINT "student_completion_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "students"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "student_completion_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "survey_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "student_completion_semester_id_fkey" FOREIGN KEY ("semester_id") REFERENCES "semesters"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "student_completion_unique" UNIQUE ("student_id", "campaign_id", "semester_id")
+    UNIQUE("student_email", "campaign_id")
 );
 
 -- ============================================================================
 -- INDEXES FOR PERFORMANCE
 -- ============================================================================
 
--- Authentication indexes
-CREATE INDEX "idx_admins_email" ON "admins"("email");
-CREATE INDEX "idx_teacher_logins_email" ON "teacher_logins"("email");
-
--- Schools indexes
-CREATE INDEX "idx_schools_code" ON "schools"("code");
-
--- Students indexes
-CREATE INDEX "idx_students_email" ON "students"("email");
-CREATE INDEX "idx_students_student_id" ON "students"("student_id");
-CREATE INDEX "idx_students_school_id" ON "students"("school_id");
-
--- Teachers indexes
-CREATE INDEX "idx_teachers_email" ON "teachers"("email");
-CREATE INDEX "idx_teachers_school_id" ON "teachers"("school_id");
-CREATE INDEX "idx_teachers_login_id" ON "teachers"("login_id");
-
--- Courses indexes
-CREATE INDEX "idx_courses_code" ON "courses"("code");
-CREATE INDEX "idx_courses_school_id" ON "courses"("school_id");
-
--- Semesters indexes
-CREATE INDEX "idx_semesters_status" ON "semesters"("status");
-CREATE INDEX "idx_semesters_dates" ON "semesters"("start_date", "end_date");
-
--- Survey campaigns indexes
+-- Campaign indexes
 CREATE INDEX "idx_survey_campaigns_semester_id" ON "survey_campaigns"("semester_id");
 CREATE INDEX "idx_survey_campaigns_status" ON "survey_campaigns"("status");
+CREATE INDEX "idx_survey_campaigns_type" ON "survey_campaigns"("type");
 CREATE INDEX "idx_survey_campaigns_created_by" ON "survey_campaigns"("created_by");
-CREATE INDEX "idx_survey_campaigns_is_published" ON "survey_campaigns"("is_published");
 
--- Enrollments indexes
-CREATE INDEX "idx_enrollments_student_id" ON "enrollments"("student_id");
-CREATE INDEX "idx_enrollments_course_id" ON "enrollments"("course_id");
-CREATE INDEX "idx_enrollments_semester_id" ON "enrollments"("semester_id");
-CREATE INDEX "idx_enrollments_course_assignment_id" ON "enrollments"("course_assignment_id");
-
--- Course assignments indexes
-CREATE INDEX "idx_course_assignments_teacher_id" ON "course_assignments"("teacher_id");
-CREATE INDEX "idx_course_assignments_course_id" ON "course_assignments"("course_id");
-CREATE INDEX "idx_course_assignments_campaign_id" ON "course_assignments"("campaign_id");
-CREATE INDEX "idx_course_assignments_completion" ON "course_assignments"("students_input_completed");
-
--- Surveys indexes
-CREATE INDEX "idx_surveys_short_id" ON "surveys"("short_id");
+-- Survey indexes
 CREATE INDEX "idx_surveys_campaign_id" ON "surveys"("campaign_id");
 CREATE INDEX "idx_surveys_course_id" ON "surveys"("course_id");
 CREATE INDEX "idx_surveys_teacher_id" ON "surveys"("teacher_id");
-CREATE INDEX "idx_surveys_semester_id" ON "surveys"("semester_id");
-CREATE INDEX "idx_surveys_is_published" ON "surveys"("is_published");
+CREATE INDEX "idx_surveys_status" ON "surveys"("status");
 
--- Survey tokens indexes
-CREATE INDEX "idx_survey_tokens_token" ON "survey_tokens"("token");
-CREATE INDEX "idx_survey_tokens_student_email" ON "survey_tokens"("student_email");
+-- Token indexes
 CREATE INDEX "idx_survey_tokens_campaign_id" ON "survey_tokens"("campaign_id");
-CREATE INDEX "idx_survey_tokens_completed" ON "survey_tokens"("completed");
+CREATE INDEX "idx_survey_tokens_student_email" ON "survey_tokens"("student_email");
+CREATE INDEX "idx_survey_tokens_used" ON "survey_tokens"("used");
+CREATE INDEX "idx_survey_tokens_is_completed" ON "survey_tokens"("is_completed");
 
--- Survey completions indexes
-CREATE INDEX "idx_survey_completions_survey_id" ON "survey_completions"("survey_id");
-CREATE INDEX "idx_survey_completions_campaign_id" ON "survey_completions"("campaign_id");
-CREATE INDEX "idx_survey_completions_student_email" ON "survey_completions"("student_email");
-CREATE INDEX "idx_survey_completions_token_id" ON "survey_completions"("token_id");
-CREATE INDEX "idx_survey_completions_completed" ON "survey_completions"("completed");
-
--- Survey responses indexes
+-- Response indexes
 CREATE INDEX "idx_survey_responses_campaign_id" ON "survey_responses"("campaign_id");
 CREATE INDEX "idx_survey_responses_commitment" ON "survey_responses"("commitment");
-
--- Decrypted responses indexes
-CREATE INDEX "idx_decrypted_responses_survey_response_id" ON "decrypted_responses"("survey_response_id");
 CREATE INDEX "idx_decrypted_responses_survey_id" ON "decrypted_responses"("survey_id");
-CREATE INDEX "idx_decrypted_responses_campaign_id" ON "decrypted_responses"("campaign_id");
-
--- Parsed responses indexes
-CREATE INDEX "idx_parsed_responses_decrypted_response_id" ON "parsed_responses"("decrypted_response_id");
+CREATE INDEX "idx_decrypted_responses_course_code" ON "decrypted_responses"("course_code");
+CREATE INDEX "idx_decrypted_responses_teacher_id" ON "decrypted_responses"("teacher_id");
 CREATE INDEX "idx_parsed_responses_survey_id" ON "parsed_responses"("survey_id");
-CREATE INDEX "idx_parsed_responses_campaign_id" ON "parsed_responses"("campaign_id");
-CREATE INDEX "idx_parsed_responses_teacher_id" ON "parsed_responses"("teacher_id");
 CREATE INDEX "idx_parsed_responses_course_code" ON "parsed_responses"("course_code");
+CREATE INDEX "idx_parsed_responses_teacher_id" ON "parsed_responses"("teacher_id");
 
 -- Analytics indexes
-CREATE INDEX "idx_survey_analytics_survey_id" ON "survey_analytics"("survey_id");
 CREATE INDEX "idx_survey_analytics_campaign_id" ON "survey_analytics"("campaign_id");
-
--- Teacher performance indexes
 CREATE INDEX "idx_teacher_performance_teacher_id" ON "teacher_performance"("teacher_id");
 CREATE INDEX "idx_teacher_performance_campaign_id" ON "teacher_performance"("campaign_id");
-CREATE INDEX "idx_teacher_performance_semester_id" ON "teacher_performance"("semester_id");
-
--- Student completion indexes
-CREATE INDEX "idx_student_completion_student_id" ON "student_completion"("student_id");
+CREATE INDEX "idx_student_completion_student_email" ON "student_completion"("student_email");
 CREATE INDEX "idx_student_completion_campaign_id" ON "student_completion"("campaign_id");
-CREATE INDEX "idx_student_completion_semester_id" ON "student_completion"("semester_id");
+
+-- University structure indexes
+CREATE INDEX "idx_students_school_id" ON "students"("school_id");
+CREATE INDEX "idx_students_email" ON "students"("email");
+CREATE INDEX "idx_students_status" ON "students"("status");
+CREATE INDEX "idx_students_active_school" ON "students"("school_id", "status") WHERE "status" = 'active';
+CREATE INDEX "idx_teachers_school_id" ON "teachers"("school_id");
+CREATE INDEX "idx_teachers_email" ON "teachers"("email");
+CREATE INDEX "idx_courses_school_id" ON "courses"("school_id");
+CREATE INDEX "idx_courses_code" ON "courses"("code");
+
+-- Assignment and enrollment indexes
+CREATE INDEX "idx_course_assignments_teacher_id" ON "course_assignments"("teacher_id");
+CREATE INDEX "idx_course_assignments_course_id" ON "course_assignments"("course_id");
+CREATE INDEX "idx_course_assignments_campaign_id" ON "course_assignments"("campaign_id");
+CREATE INDEX "idx_course_assignments_semester_id" ON "course_assignments"("semester_id");
+CREATE INDEX "idx_enrollments_student_id" ON "enrollments"("student_id");
+CREATE INDEX "idx_enrollments_course_id" ON "enrollments"("course_id");
+CREATE INDEX "idx_enrollments_campaign_id" ON "enrollments"("campaign_id");
+CREATE INDEX "idx_enrollments_semester_id" ON "enrollments"("semester_id");
+
+-- Teacher login indexes (from migration 001)
+CREATE UNIQUE INDEX "idx_teacher_logins_teacher_id" ON "teacher_logins"("teacher_id");
+CREATE INDEX "idx_teacher_logins_email_active" ON "teacher_logins"("email") WHERE "is_active" = true;
+
+-- Performance indexes for Merkle root calculation (from migration 002)
+CREATE INDEX IF NOT EXISTS "idx_survey_responses_survey_id_commitment" ON "survey_responses"("survey_id") WHERE "commitment" IS NOT NULL;
+CREATE INDEX IF NOT EXISTS "idx_survey_responses_created_at" ON "survey_responses"("created_at");
+CREATE INDEX IF NOT EXISTS "idx_survey_responses_survey_commitment" ON "survey_responses"("survey_id", "commitment", "created_at") WHERE "commitment" IS NOT NULL;
+CREATE INDEX IF NOT EXISTS "idx_survey_tokens_campaign_completion" ON "survey_tokens"("campaign_id", "is_completed");
 
 -- ============================================================================
--- TRIGGERS FOR AUTOMATIC UPDATES
+-- TRIGGERS FOR AUTOMATIC UPDATED_AT
 -- ============================================================================
 
--- Create or replace the update function
+-- Function to automatically update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -455,142 +401,99 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Create triggers for all tables
-CREATE TRIGGER update_admins_updated_at BEFORE UPDATE ON "admins"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_teacher_logins_updated_at BEFORE UPDATE ON "teacher_logins"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_schools_updated_at BEFORE UPDATE ON "schools"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_students_updated_at BEFORE UPDATE ON "students"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_teachers_updated_at BEFORE UPDATE ON "teachers"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_courses_updated_at BEFORE UPDATE ON "courses"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_semesters_updated_at BEFORE UPDATE ON "semesters"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_survey_campaigns_updated_at BEFORE UPDATE ON "survey_campaigns"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_course_assignments_updated_at BEFORE UPDATE ON "course_assignments"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_enrollments_updated_at BEFORE UPDATE ON "enrollments"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_survey_campaigns_updated_at BEFORE UPDATE ON "survey_campaigns"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_surveys_updated_at BEFORE UPDATE ON "surveys"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_survey_tokens_updated_at BEFORE UPDATE ON "survey_tokens"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_survey_completions_updated_at BEFORE UPDATE ON "survey_completions"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_survey_responses_updated_at BEFORE UPDATE ON "survey_responses"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_survey_analytics_updated_at BEFORE UPDATE ON "survey_analytics"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_teacher_performance_updated_at BEFORE UPDATE ON "teacher_performance"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_student_completion_updated_at BEFORE UPDATE ON "student_completion"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Apply triggers to all tables with updated_at column
+CREATE TRIGGER "update_admins_updated_at" BEFORE UPDATE ON "admins" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_teacher_logins_updated_at" BEFORE UPDATE ON "teacher_logins" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_schools_updated_at" BEFORE UPDATE ON "schools" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_students_updated_at" BEFORE UPDATE ON "students" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_teachers_updated_at" BEFORE UPDATE ON "teachers" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_courses_updated_at" BEFORE UPDATE ON "courses" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_semesters_updated_at" BEFORE UPDATE ON "semesters" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_survey_campaigns_updated_at" BEFORE UPDATE ON "survey_campaigns" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_course_assignments_updated_at" BEFORE UPDATE ON "course_assignments" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_enrollments_updated_at" BEFORE UPDATE ON "enrollments" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_surveys_updated_at" BEFORE UPDATE ON "surveys" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_survey_responses_updated_at" BEFORE UPDATE ON "survey_responses" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_decrypted_responses_updated_at" BEFORE UPDATE ON "decrypted_responses" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_parsed_responses_updated_at" BEFORE UPDATE ON "parsed_responses" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_survey_analytics_updated_at" BEFORE UPDATE ON "survey_analytics" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_teacher_performance_updated_at" BEFORE UPDATE ON "teacher_performance" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER "update_student_completion_updated_at" BEFORE UPDATE ON "student_completion" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
--- COMPLETION TRACKING QUERIES
+-- VIEWS FOR COMPLETION TRACKING
 -- ============================================================================
 
--- Students not completed in campaign (campaign-level completion)
-CREATE OR REPLACE VIEW "campaign_completion_status" AS
+-- Campaign completion status view
+CREATE VIEW "campaign_completion_status" AS
 SELECT 
     sc.id as campaign_id,
     sc.name as campaign_name,
-    s.email as student_email,
-    s.name as student_name,
-    st.completed as token_completed,
-    st.completed_at
+    sc.status as campaign_status,
+    COUNT(DISTINCT st.student_email) as total_students,
+    COUNT(DISTINCT CASE WHEN st.is_completed = true THEN st.student_email END) as completed_students,
+    CASE 
+        WHEN COUNT(DISTINCT st.student_email) > 0 
+        THEN ROUND((COUNT(DISTINCT CASE WHEN st.is_completed = true THEN st.student_email END)::DECIMAL / COUNT(DISTINCT st.student_email)) * 100, 2)
+        ELSE 0 
+    END as completion_percentage
 FROM survey_campaigns sc
-CROSS JOIN students s
-LEFT JOIN survey_tokens st ON s.email = st.student_email AND st.campaign_id = sc.id
-WHERE sc.status = 'closed';
+LEFT JOIN survey_tokens st ON sc.id = st.campaign_id
+GROUP BY sc.id, sc.name, sc.status;
 
--- Student participation rate (individual survey completion tracking)
-CREATE OR REPLACE VIEW "student_participation_rate" AS
+-- Student participation rate view
+CREATE VIEW "student_participation_rate" AS
 SELECT 
-    s.email as student_email,
-    s.name as student_name,
-    sc.id as campaign_id,
+    st.student_email,
     sc.name as campaign_name,
-    COUNT(scp.survey_id) as total_required_surveys,
-    COUNT(CASE WHEN scp.completed = true THEN 1 END) as completed_surveys,
-    ROUND(
-        COUNT(CASE WHEN scp.completed = true THEN 1 END)::DECIMAL / 
-        NULLIF(COUNT(scp.survey_id), 0) * 100, 2
-    ) as participation_rate_percentage
-FROM students s
-JOIN survey_tokens st ON s.email = st.student_email
+    COUNT(DISTINCT s.id) as total_surveys,
+    COUNT(DISTINCT scp.survey_id) as completed_surveys,
+    CASE 
+        WHEN COUNT(DISTINCT s.id) > 0 
+        THEN ROUND((COUNT(DISTINCT scp.survey_id)::DECIMAL / COUNT(DISTINCT s.id)) * 100, 2)
+        ELSE 0 
+    END as participation_rate
+FROM survey_tokens st
 JOIN survey_campaigns sc ON st.campaign_id = sc.id
-LEFT JOIN survey_completions scp ON s.email = scp.student_email AND scp.campaign_id = sc.id
-WHERE sc.status = 'closed'
-GROUP BY s.email, s.name, sc.id, sc.name;
+JOIN surveys s ON sc.id = s.campaign_id
+LEFT JOIN survey_completions scp ON st.student_email = scp.student_email AND s.id = scp.survey_id
+GROUP BY st.student_email, sc.name;
 
--- Student enrollment completion tracking (specific enrollments not completed)
-CREATE OR REPLACE VIEW "enrollment_completion_status" AS
+-- Enrollment completion status view
+CREATE VIEW "enrollment_completion_status" AS
 SELECT 
     e.student_id,
-    s.email as student_email,
-    s.name as student_name,
-    c.code as course_code,
+    e.course_id,
     c.name as course_name,
-    ca.campaign_id,
+    t.name as teacher_name,
     sc.name as campaign_name,
-    st.completed as token_completed,
-    scp.completed as survey_completed
+    s.id as survey_id,
+    CASE WHEN scp.id IS NOT NULL THEN true ELSE false END as is_completed
 FROM enrollments e
-JOIN students s ON e.student_id = s.id
 JOIN courses c ON e.course_id = c.id
-JOIN course_assignments ca ON e.course_assignment_id = ca.id
-JOIN survey_campaigns sc ON ca.campaign_id = sc.id
-LEFT JOIN survey_tokens st ON s.email = st.student_email AND st.campaign_id = sc.id
-LEFT JOIN survey_completions scp ON s.email = scp.student_email AND scp.survey_id IN (
-    SELECT id FROM surveys WHERE course_id = c.id AND campaign_id = sc.id
-)
-WHERE sc.status = 'closed';
+JOIN course_assignments ca ON e.course_id = ca.course_id AND e.semester_id = ca.semester_id
+JOIN teachers t ON ca.teacher_id = t.id
+JOIN survey_campaigns sc ON e.semester_id = sc.semester_id
+LEFT JOIN surveys s ON sc.id = s.campaign_id AND c.id = s.course_id AND t.id = s.teacher_id
+LEFT JOIN survey_completions scp ON s.id = scp.survey_id AND e.student_id = scp.student_email;
 
 -- ============================================================================
 -- SAMPLE DATA FOR TESTING
 -- ============================================================================
 
 -- Insert sample admin
-INSERT INTO "admins" ("id", "email", "name", "password_hash", "role") VALUES
-    ('admin-001', 'admin@university.edu', 'System Administrator', 'hashed_password', 'super_admin')
-ON CONFLICT ("id") DO NOTHING;
+INSERT INTO "admins" ("id", "email", "name", "password_hash", "role") VALUES 
+('admin_001', 'admin@university.edu', 'University Admin', '$2b$10$example_hash', 'super_admin');
 
 -- Insert sample schools
-INSERT INTO "schools" ("id", "name", "code") VALUES
-    ('school-cse', 'School of Computer Science and Engineering', 'CSE'),
-    ('school-eng', 'School of Engineering', 'ENG'),
-    ('school-bus', 'School of Business', 'BUS')
-ON CONFLICT ("id") DO NOTHING;
+INSERT INTO "schools" ("id", "name", "code", "description") VALUES 
+('school_001', 'School of Computer Science and Engineering', 'CSE', 'Computer Science and Engineering programs'),
+('school_002', 'School of Business', 'BUS', 'Business and Management programs'),
+('school_003', 'School of Engineering', 'ENG', 'General Engineering programs');
 
 -- Insert sample semester
-INSERT INTO "semesters" ("id", "name", "start_date", "end_date", "status") VALUES
-    ('semester-fall-2024', 'Fall 2024', '2024-08-15', '2024-12-15', 'planning')
-ON CONFLICT ("id") DO NOTHING;
+INSERT INTO "semesters" ("id", "name", "start_date", "end_date", "status") VALUES 
+('sem_001', 'Fall 2024', '2024-09-01', '2024-12-15', 'active');
 
 -- Success message
 SELECT 'University scaling database schema created successfully!' as status;

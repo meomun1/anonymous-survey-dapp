@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   postgres:
@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: anonymous_survey
+      POSTGRES_DB: anonymous_survey_university
     ports:
       - "5432:5432"
     volumes:
@@ -38,7 +38,7 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@example.com
       PGADMIN_DEFAULT_PASSWORD: admin123
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_SERVER_MODE: "False"
     ports:
       - "8080:80"
     volumes:
@@ -46,7 +46,15 @@ services:
     depends_on:
       - postgres
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/misc/ping"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:80/misc/ping",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -54,4 +62,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  pgadmin_data: 
+  pgadmin_data:

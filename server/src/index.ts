@@ -13,7 +13,9 @@ import tokenRoutes from './routes/token.routes';
 import responseRoutes from './routes/response.routes';
 import cryptoRoutes from './routes/crypto.routes';
 import authRoutes from './routes/auth.routes';
-import publicResponseRoutes from './routes/publicResponse.routes';
+import campaignRoutes from './routes/campaign.routes';
+import universityRoutes from './routes/university.routes';
+import analyticsRoutes from './routes/analytics.routes';
 
 // Load environment variables
 dotenv.config();
@@ -65,7 +67,10 @@ app.get('/api-status', (req, res) => {
       tokens: '/api/tokens',
       crypto: '/api/crypto',
       responses: '/api/responses',
-      publicResponses: '/api/public-responses'
+      // publicResponses removed
+      campaigns: '/api/campaigns',
+      university: '/api/university',
+      analytics: '/api/analytics'
     },
     documentation: '/api-docs',
     health: '/health'
@@ -78,7 +83,10 @@ app.use('/api/surveys', surveyRoutes);
 app.use('/api/tokens', tokenRoutes);
 app.use('/api/responses', responseRoutes);
 app.use('/api/crypto', cryptoRoutes);
-app.use('/api/public-responses', publicResponseRoutes);
+// public-responses route removed
+app.use('/api/campaigns', campaignRoutes);
+app.use('/api/university', universityRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Global error handling middleware
 app.use(errorHandler);
@@ -89,7 +97,6 @@ app.listen(port, async () => {
     // Connect to Redis
     await redisClient.connect();
     console.log('Connected to Redis');
-
     console.log(`Server is running on port ${port}`);
     console.log(`Health check available at: http://localhost:${port}/health`);
     console.log(`API documentation available at: /api-docs`);

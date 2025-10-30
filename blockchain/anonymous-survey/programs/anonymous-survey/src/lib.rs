@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::hash::hash;
 
 declare_id!("mNtgDCdiUe415LDYWgD1n8zuLiPVmgqSdbUL1zHtaLq");
 
@@ -7,226 +6,303 @@ declare_id!("mNtgDCdiUe415LDYWgD1n8zuLiPVmgqSdbUL1zHtaLq");
 pub mod anonymous_survey {
     use super::*;
 
-    pub fn create_survey(
-        ctx: Context<CreateSurvey>,
-        survey_id: String,
-        title: String,
-        description: String,
+    pub fn create_campaign(
+        ctx: Context<CreateCampaign>,
+        campaign_id: String,
+        semester: String,
+        campaign_type: u8,
         blind_signature_public_key: Vec<u8>,
         encryption_public_key: Vec<u8>,
     ) -> Result<()> {
         // Requirements
-        require!(survey_id.len() <= 50, SurveyError::SurveyIdTooLong);
-        require!(title.len() <= 100, SurveyError::TitleTooLong);
-        require!(description.len() <= 500, SurveyError::DescriptionTooLong);
+        require!(campaign_id.len() <= 50, CampaignError::CampaignIdTooLong);
+        require!(semester.len() <= 20, CampaignError::SemesterTooLong);
+        require!(campaign_type <= 1, CampaignError::InvalidCampaignType); // 0 = Course, 1 = Event
         require!(
-            blind_signature_public_key.len() <= 300, // CORRECTED: RSA public keys are ~294 bytes
-            SurveyError::PublicKeyTooLong
+            blind_signature_public_key.len() <= 300,
+            CampaignError::PublicKeyTooLong
         );
         require!(
-            encryption_public_key.len() <= 300, // CORRECTED: RSA public keys are ~294 bytes
-            SurveyError::PublicKeyTooLong
+            encryption_public_key.len() <= 300,
+            CampaignError::PublicKeyTooLong
         );
 
-        // Init survey
-        let survey = &mut ctx.accounts.survey;
-        survey.authority = ctx.accounts.authority.key();
-        survey.survey_id = survey_id;
-        survey.title = title;
-        survey.description = description;
-        survey.total_responses = 0;
-        survey.created_at = Clock::get()?.unix_timestamp;
-        survey.updated_at = Clock::get()?.unix_timestamp;
-        survey.is_published = false;
-        survey.merkle_root = [0; 32];
-        survey.encrypted_answers = Vec::new();
-        survey.commitments = Vec::new();
-        survey.blind_signature_public_key = blind_signature_public_key;
-        survey.encryption_public_key = encryption_public_key;
+        // Init campaign
+        let campaign = &mut ctx.accounts.campaign;
+        campaign.authority = ctx.accounts.authority.key();
+        campaign.campaign_id = campaign_id;
+        campaign.semester = semester;
+        campaign.campaign_type = campaign_type;
+        campaign.total_responses = 0;
+        campaign.created_at = Clock::get()?.unix_timestamp;
+        campaign.updated_at = Clock::get()?.unix_timestamp;
+        campaign.is_published = false;
+        campaign.merkle_root = [0; 32];
+        campaign.encrypted_responses = Vec::new();
+        campaign.commitments = Vec::new();
+        campaign.blind_signature_public_key = blind_signature_public_key;
+        campaign.encryption_public_key = encryption_public_key;
         Ok(())
     }
 
-    pub fn submit_response(
-        ctx: Context<SubmitResponse>,
-        commitment: [u8; 32],
-        encrypted_answer: [u8; 256], // CORRECTED: RSA-2048 encrypted data is 256 bytes
+    pub fn submit_batch_responses(
+        ctx: Context<SubmitBatchResponses>,
+        commitments: Vec<[u8; 32]>,
+        encrypted_responses: Vec<[u8; 256]>,
     ) -> Result<()> {
-        let survey = &mut ctx.accounts.survey;
+        let campaign = &mut ctx.accounts.campaign;
 
-        // Check if survey is already published
-        require!(!survey.is_published, SurveyError::SurveyAlreadyPublished);
-
-        // Check if survey has reached response limit
+        // Check if campaign is already published
         require!(
-            survey.commitments.len() < Survey::MAX_RESPONSES,
-            SurveyError::SurveyFull
+            !campaign.is_published,
+            CampaignError::CampaignAlreadyPublished
         );
 
-        // Add commitment and encrypted answer to survey
-        survey.commitments.push(commitment);
-        survey.encrypted_answers.push(encrypted_answer);
-        survey.total_responses = survey.total_responses.checked_add(1).unwrap();
-        survey.updated_at = Clock::get()?.unix_timestamp;
+        // Only authority can submit batch responses
+        require!(
+            campaign.authority == ctx.accounts.authority.key(),
+            CampaignError::Unauthorized
+        );
+
+        // Verify commitments and encrypted responses have same length
+        require!(
+            commitments.len() == encrypted_responses.len(),
+            CampaignError::MismatchedDataLength
+        );
+
+        // Add all commitments and encrypted responses
+        let response_count = encrypted_responses.len() as u32;
+        campaign.commitments.extend(commitments);
+        campaign.encrypted_responses.extend(encrypted_responses);
+        campaign.total_responses = campaign
+            .total_responses
+            .checked_add(response_count)
+            .unwrap();
+        campaign.updated_at = Clock::get()?.unix_timestamp;
 
         Ok(())
     }
 
-    pub fn publish_results(ctx: Context<PublishResults>) -> Result<()> {
-        let survey = &mut ctx.accounts.survey;
+    pub fn publish_campaign_results(
+        ctx: Context<PublishCampaignResults>,
+        merkle_root: [u8; 32], // Calculated off-chain by server from commitments
+    ) -> Result<()> {
+        let campaign = &mut ctx.accounts.campaign;
 
         // Only authority can publish results
         require!(
-            survey.authority == ctx.accounts.authority.key(),
-            SurveyError::Unauthorized
+            campaign.authority == ctx.accounts.authority.key(),
+            CampaignError::Unauthorized
         );
 
-        // Verify survey is not already published
-        require!(!survey.is_published, SurveyError::SurveyAlreadyPublished);
+        // Verify campaign is not already published
+        require!(
+            !campaign.is_published,
+            CampaignError::CampaignAlreadyPublished
+        );
 
-        // Calculate Merkle root from commitments
-        let merkle_root = calculate_merkle_root(&survey.commitments);
-        survey.merkle_root = merkle_root;
-        survey.is_published = true;
-        survey.updated_at = Clock::get()?.unix_timestamp;
+        // Verify we have responses to publish
+        require!(
+            campaign.total_responses > 0,
+            CampaignError::NoResponsesSubmitted
+        );
 
-        // Clear encrypted answers after publishing to free up space
-        survey.encrypted_answers.clear();
+        // Store the off-chain calculated Merkle root (from commitments)
+        campaign.merkle_root = merkle_root;
+        campaign.is_published = true;
+        campaign.updated_at = Clock::get()?.unix_timestamp;
+
+        // Clear encrypted responses to free up space (keep commitments)
+        campaign.encrypted_responses.clear();
+
+        Ok(())
+    }
+
+    pub fn update_final_merkle_root(
+        ctx: Context<UpdateFinalMerkleRoot>,
+        final_merkle_root: [u8; 32], // Calculated off-chain from all campaign roots
+    ) -> Result<()> {
+        let final_root = &mut ctx.accounts.final_root;
+
+        // Only authority can update final root
+        require!(
+            final_root.authority == ctx.accounts.authority.key(),
+            CampaignError::Unauthorized
+        );
+
+        // Update the final Merkle root (calculated off-chain from all campaign roots)
+        final_root.final_merkle_root = final_merkle_root;
+        final_root.updated_at = Clock::get()?.unix_timestamp;
+
+        Ok(())
+    }
+
+    pub fn initialize_final_root(
+        ctx: Context<InitializeFinalRoot>,
+        university_id: String,
+    ) -> Result<()> {
+        let final_root = &mut ctx.accounts.final_root;
+
+        final_root.authority = ctx.accounts.authority.key();
+        final_root.university_id = university_id;
+        final_root.total_campaigns = 0;
+        final_root.created_at = Clock::get()?.unix_timestamp;
+        final_root.updated_at = Clock::get()?.unix_timestamp;
+        final_root.final_merkle_root = [0; 32]; // Will be calculated off-chain
 
         Ok(())
     }
 }
 
 #[derive(Accounts)]
-#[instruction(survey_id: String)]
-pub struct CreateSurvey<'info> {
+#[instruction(campaign_id: String, semester: String)]
+pub struct CreateCampaign<'info> {
     #[account(
         init,
         payer = authority,
-        space = 8 + Survey::LEN,
-        seeds = [b"survey", authority.key().as_ref(), survey_id.as_bytes()],
+        space = 8 + SurveyCampaign::calculate_size_for_responses(30), // Pre-allocate space for 10 responses
+        seeds = [b"campaign", authority.key().as_ref(), campaign_id.as_bytes()],
         bump
     )]
-    pub survey: Account<'info, Survey>,
+    pub campaign: Account<'info, SurveyCampaign>,
     #[account(mut)]
     pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct SubmitResponse<'info> {
-    #[account(
-        mut,
-        realloc = 8 + Survey::calculate_size_for_responses(survey.total_responses + 1),
-        realloc::payer = user,
-        realloc::zero = false
-    )]
-    pub survey: Account<'info, Survey>,
+pub struct SubmitBatchResponses<'info> {
     #[account(mut)]
-    pub user: Signer<'info>,
+    pub campaign: Account<'info, SurveyCampaign>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct PublishResults<'info> {
+pub struct PublishCampaignResults<'info> {
+    #[account(mut)]
+    pub campaign: Account<'info, SurveyCampaign>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(university_id: String)]
+pub struct InitializeFinalRoot<'info> {
     #[account(
-        mut,
-        realloc = 8 + Survey::calculate_size_after_publishing(survey.total_responses),
-        realloc::payer = authority,
-        realloc::zero = false
+        init,
+        payer = authority,
+        space = 8 + UniversityPerformance::LEN,
+        seeds = [b"university_performance", university_id.as_bytes()],
+        bump
     )]
-    pub survey: Account<'info, Survey>,
+    pub final_root: Account<'info, UniversityPerformance>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateFinalMerkleRoot<'info> {
+    #[account(mut)]
+    pub final_root: Account<'info, UniversityPerformance>,
     #[account(mut)]
     pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
 #[account]
-pub struct Survey {
+pub struct SurveyCampaign {
     pub authority: Pubkey,
-    pub survey_id: String,
-    pub title: String,
-    pub description: String,
+    pub campaign_id: String,
+    pub semester: String,
+    pub campaign_type: u8, // 0 = Course, 1 = Event
     pub total_responses: u32,
     pub created_at: i64,
     pub updated_at: i64,
     pub is_published: bool,
-    pub merkle_root: [u8; 32],
-    pub encrypted_answers: Vec<[u8; 256]>, // RSA-2048 ciphertext is 256 bytes
-    pub commitments: Vec<[u8; 32]>,        // Hash commitments are 32 bytes
+    pub merkle_root: [u8; 32], // Calculated off-chain during publishing
+    pub encrypted_responses: Vec<[u8; 256]>, // RSA-2048 encrypted responses (cleared after publishing)
+    pub commitments: Vec<[u8; 32]>,          // Hash commitments (kept after publishing)
     pub blind_signature_public_key: Vec<u8>, // RSA public key for blind signatures (~294 bytes)
-    pub encryption_public_key: Vec<u8>,    // RSA public key for encryption (~294 bytes)
+    pub encryption_public_key: Vec<u8>,      // RSA public key for encryption (~294 bytes)
 }
 
-impl Survey {
-    // Set response limit to 10-500
-    pub const MAX_RESPONSES: usize = 10;
+#[account]
+pub struct UniversityPerformance {
+    pub authority: Pubkey,
+    pub university_id: String,
+    pub total_campaigns: u32,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub final_merkle_root: [u8; 32], // Root of all campaign roots (calculated off-chain)
+}
 
-    // Base size without the dynamic vectors
+impl SurveyCampaign {
+    // Base size without dynamic vectors
     pub const BASE_LEN: usize = 32 +        // authority: Pubkey
-        4 + 50 +    // survey_id: String (4 bytes length + 50 chars)
-        4 + 100 +   // title: String (4 bytes length + 100 chars)
-        4 + 500 +   // description: String (4 bytes length + 500 chars)
+        4 + 50 +    // campaign_id: String (4 bytes length + 50 chars)
+        4 + 20 +    // semester: String (4 bytes length + 20 chars)
+        1 +         // campaign_type: u8
         4 +         // total_responses: u32
         8 +         // created_at: i64
         8 +         // updated_at: i64
         1 +         // is_published: bool
         32 +        // merkle_root: [u8; 32]
-        4 +         // encrypted_answers: Vec header
+        4 +         // encrypted_responses: Vec header
         4 +         // commitments: Vec header
         4 + 300 +   // blind_signature_public_key: Vec<u8> (4 bytes length + 300 bytes)
         4 + 300; // encryption_public_key: Vec<u8> (4 bytes length + 300 bytes)
-                 // TOTAL: 1363 bytes
+                 // TOTAL: 772 bytes base
 
     // Calculate total size for a given number of responses
     pub fn calculate_size_for_responses(num_responses: u32) -> usize {
-        Self::BASE_LEN + (num_responses as usize * (256 + 32)) // 256 for encrypted_answer + 32 for commitment
+        Self::BASE_LEN + (num_responses as usize * (256 + 32)) // 256 for encrypted_response + 32 for commitment
     }
-    // Calculate size after publishing (no encrypted answers, only commitments)
+
+    // Calculate size after publishing (no encrypted responses, only commitments)
     pub fn calculate_size_after_publishing(num_responses: u32) -> usize {
         Self::BASE_LEN + (num_responses as usize * 32) // Only commitments remain (32 bytes each)
     }
+
     // Initial size with 0 responses
     pub const LEN: usize = Self::BASE_LEN;
 }
 
+impl UniversityPerformance {
+    // Base size for UniversityPerformance account
+    pub const BASE_LEN: usize = 32 +        // authority: Pubkey
+        4 + 50 +    // university_id: String (4 bytes length + 50 chars)
+        4 +         // total_campaigns: u32
+        8 +         // created_at: i64
+        8 +         // updated_at: i64
+        32; // final_merkle_root: [u8; 32]
+
+    // Fixed size for UniversityPerformance account (no dynamic vectors)
+    pub const LEN: usize = Self::BASE_LEN;
+}
+
 #[error_code]
-pub enum SurveyError {
-    #[msg("Survey is already published")]
-    SurveyAlreadyPublished,
-    #[msg("Survey ID is too long")]
-    SurveyIdTooLong,
-    #[msg("Title is too long")]
-    TitleTooLong,
-    #[msg("Description is too long")]
-    DescriptionTooLong,
+pub enum CampaignError {
+    #[msg("Campaign is already published")]
+    CampaignAlreadyPublished,
+    #[msg("Campaign ID is too long")]
+    CampaignIdTooLong,
+    #[msg("Semester is too long")]
+    SemesterTooLong,
+    #[msg("Invalid campaign type")]
+    InvalidCampaignType,
     #[msg("Public key is too long")]
     PublicKeyTooLong,
     #[msg("Unauthorized")]
     Unauthorized,
-    #[msg("Survey has reached maximum response limit")]
-    SurveyFull,
+    #[msg("No responses submitted")]
+    NoResponsesSubmitted,
+    #[msg("Mismatched data length")]
+    MismatchedDataLength,
 }
 
-// Helper function to calculate Merkle root
-fn calculate_merkle_root(commitments: &Vec<[u8; 32]>) -> [u8; 32] {
-    if commitments.is_empty() {
-        return [0; 32];
-    }
-
-    let mut current_level = commitments.clone();
-
-    while current_level.len() > 1 {
-        let mut next_level = Vec::new();
-        for i in (0..current_level.len()).step_by(2) {
-            if i + 1 < current_level.len() {
-                let combined = [&current_level[i][..], &current_level[i + 1][..]].concat();
-                next_level.push(hash(&combined).to_bytes());
-            } else {
-                next_level.push(current_level[i]);
-            }
-        }
-        current_level = next_level;
-    }
-
-    current_level[0]
-}
+// Note: Merkle root calculation is now done off-chain on the server
+// to avoid Solana compute limits for large numbers of responses (34,000+)

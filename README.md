@@ -69,9 +69,28 @@ npm run dev
 ```
 
 For detailed setup instructions, see:
-- [Blockchain README](./blockchain/README.md)
-- [Server README](./server/README.md)
-- [Client README](./client/README.md)
+- [Blockchain README](./blockchain/BLOCKCHAIN_README.md)
+- [Server README](./server/SERVER_README.md)
+- [Client README](./client/CLIENT_README.md)
+
+## 📚 University Scaling Documentation
+
+This project now supports **university-wide scaling** with comprehensive documentation:
+
+### 🗄️ **Database & Schema**
+- **[Database Workflow](./DATABASE_WORKFLOW.md)** - Complete workflow with table updates
+- **[University Scaling Documentation](./UNIVERSITY_SCALING_DOCUMENTATION.md)** - Full project scaling overview
+
+### 🏗️ **Schema Files**
+- **[University Schema SQL](./server/database/university-schema.sql)** - Complete database schema for university scaling
+- **[Original Schema](./server/database/schema.sql)** - Legacy single-survey schema
+
+### 📊 **Key Features**
+- **Survey Campaigns**: Main entities with cryptographic settings
+- **Course vs Event Surveys**: Explicit type distinction
+- **Enhanced Completion Tracking**: Campaign, individual, and enrollment level
+- **Corrected Response Flow**: Blockchain → Fetch → Decrypt → Analytics (survey_id extracted from answer_string)
+- **Scalable Design**: Ready for 1000-2000 students, 4000-8000 surveys
 
 ## System Architecture
 
@@ -153,13 +172,3 @@ For detailed technical implementation, see the individual component documentatio
 - [Blind Signature - Wikipedia](https://en.wikipedia.org/wiki/Blind_signature)
 - [Commitment Scheme - Wikipedia](https://en.wikipedia.org/wiki/Commitment_scheme)
 - [Public-key Cryptography - Wikipedia](https://en.wikipedia.org/wiki/Public-key_cryptography)
-
-
-## Security Features
-
-- **Anonymity**: School cannot identify which survey belongs to which student
-- **Integrity**: Each student can only participate in the survey once
-- **Security**: Survey data is encrypted and only the school can decrypt it
-- **Transparency**: Process is conducted on blockchain, verifiable and traceable
-- **Verifiability**: Survey results are publicly verifiable through commitments
-- **Tamper Resistance**: School cannot modify or hide survey results without detection

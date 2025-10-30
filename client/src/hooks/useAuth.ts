@@ -10,11 +10,18 @@ interface LoginCredentials {
 interface AuthResponse {
   token: string;
   refreshToken: string;
+  user?: {
+    id: string;
+    role: 'admin' | 'teacher' | 'student';
+    email: string;
+    name?: string;
+  };
 }
 
 export const useAuth = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<AuthResponse['user'] | null>(null);
 
   const login = useCallback(async (credentials: LoginCredentials): Promise<AuthResponse> => {
     try {
@@ -23,10 +30,14 @@ export const useAuth = () => {
       const response = await apiClient.post<AuthResponse>('/auth/login', credentials);
       const authData = response.data;
       
-      // Store tokens in localStorage (client-side only)
+      // Store tokens and user data in localStorage (client-side only)
       if (typeof window !== 'undefined') {
         localStorage.setItem('token', authData.token);
         localStorage.setItem('refreshToken', authData.refreshToken);
+        if (authData.user) {
+          localStorage.setItem('user', JSON.stringify(authData.user));
+          setUser(authData.user);
+        }
       }
       
       return authData;
@@ -55,6 +66,10 @@ export const useAuth = () => {
       if (typeof window !== 'undefined') {
         localStorage.setItem('token', authData.token);
         localStorage.setItem('refreshToken', authData.refreshToken);
+        if (authData.user) {
+          localStorage.setItem('user', JSON.stringify(authData.user));
+          setUser(authData.user);
+        }
       }
       
       return authData;
@@ -70,6 +85,8 @@ export const useAuth = () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('token');
       localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+      setUser(null);
     }
   }, []);
 
@@ -81,13 +98,36 @@ export const useAuth = () => {
     return !!getToken();
   }, [getToken]);
 
+  const getUser = useCallback(() => {
+    if (user) return user;
+    if (typeof window !== 'undefined') {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        try {
+          return JSON.parse(storedUser);
+        } catch (e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }, [user]);
+
+  const hasRole = useCallback((role: 'admin' | 'teacher' | 'student') => {
+    const currentUser = getUser();
+    return currentUser?.role === role;
+  }, [getUser]);
+
   return {
     loading,
     error,
+    user,
     login,
     refreshToken,
     logout,
     getToken,
     isAuthenticated,
+    getUser,
+    hasRole,
   };
 }; 

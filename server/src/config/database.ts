@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 // Resolve connection string with safe default and clear logging
 const resolveDatabaseUrl = (): string => {
   const envUrl = process.env.DATABASE_URL;
-  const defaultUrl = 'postgresql://postgres:postgres@localhost:5432/anonymous_survey';
+  const defaultUrl = 'postgresql://postgres:postgres@localhost:5432/anonymous_survey_university';
 
   if (!envUrl || envUrl.trim() === '') {
     console.warn('⚠️ DATABASE_URL not set. Falling back to local default.');

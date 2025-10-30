@@ -14,32 +14,34 @@ export type AnonymousSurvey = {
   },
   "instructions": [
     {
-      "name": "createSurvey",
+      "name": "createCampaign",
       "discriminator": [
-        25,
-        36,
-        97,
-        69,
-        88,
-        88,
-        54,
-        222
+        111,
+        131,
+        187,
+        98,
+        160,
+        193,
+        114,
+        244
       ],
       "accounts": [
         {
-          "name": "survey",
+          "name": "campaign",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  117,
-                  114,
-                  118,
-                  101,
-                  121
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
                 ]
               },
               {
@@ -48,7 +50,7 @@ export type AnonymousSurvey = {
               },
               {
                 "kind": "arg",
-                "path": "surveyId"
+                "path": "campaignId"
               }
             ]
           }
@@ -65,16 +67,16 @@ export type AnonymousSurvey = {
       ],
       "args": [
         {
-          "name": "surveyId",
+          "name": "campaignId",
           "type": "string"
         },
         {
-          "name": "title",
+          "name": "semester",
           "type": "string"
         },
         {
-          "name": "description",
-          "type": "string"
+          "name": "campaignType",
+          "type": "u8"
         },
         {
           "name": "blindSignaturePublicKey",
@@ -87,20 +89,89 @@ export type AnonymousSurvey = {
       ]
     },
     {
-      "name": "publishResults",
+      "name": "initializeFinalRoot",
       "discriminator": [
-        198,
-        64,
-        157,
-        180,
+        208,
+        43,
+        2,
+        5,
         215,
-        21,
-        224,
-        119
+        226,
+        124,
+        136
       ],
       "accounts": [
         {
-          "name": "survey",
+          "name": "finalRoot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  110,
+                  105,
+                  118,
+                  101,
+                  114,
+                  115,
+                  105,
+                  116,
+                  121,
+                  95,
+                  112,
+                  101,
+                  114,
+                  102,
+                  111,
+                  114,
+                  109,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "universityId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "universityId",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "publishCampaignResults",
+      "discriminator": [
+        32,
+        231,
+        48,
+        179,
+        88,
+        154,
+        199,
+        142
+      ],
+      "accounts": [
+        {
+          "name": "campaign",
           "writable": true
         },
         {
@@ -113,27 +184,37 @@ export type AnonymousSurvey = {
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "merkleRoot",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "submitResponse",
+      "name": "submitBatchResponses",
       "discriminator": [
-        85,
-        190,
-        208,
-        119,
-        243,
-        52,
-        133,
-        90
+        42,
+        147,
+        129,
+        63,
+        213,
+        4,
+        8,
+        93
       ],
       "accounts": [
         {
-          "name": "survey",
+          "name": "campaign",
           "writable": true
         },
         {
-          "name": "user",
+          "name": "authority",
           "writable": true,
           "signer": true
         },
@@ -144,20 +225,63 @@ export type AnonymousSurvey = {
       ],
       "args": [
         {
-          "name": "commitment",
+          "name": "commitments",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        },
+        {
+          "name": "encryptedResponses",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                256
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateFinalMerkleRoot",
+      "discriminator": [
+        129,
+        22,
+        150,
+        101,
+        100,
+        217,
+        246,
+        156
+      ],
+      "accounts": [
+        {
+          "name": "finalRoot",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "finalMerkleRoot",
           "type": {
             "array": [
               "u8",
               32
-            ]
-          }
-        },
-        {
-          "name": "encryptedAnswer",
-          "type": {
-            "array": [
-              "u8",
-              256
             ]
           }
         }
@@ -166,39 +290,52 @@ export type AnonymousSurvey = {
   ],
   "accounts": [
     {
-      "name": "survey",
+      "name": "surveyCampaign",
       "discriminator": [
-        146,
+        72,
+        247,
+        60,
+        211,
+        127,
+        228,
+        78,
+        166
+      ]
+    },
+    {
+      "name": "universityPerformance",
+      "discriminator": [
+        245,
+        103,
         73,
-        17,
-        4,
-        6,
-        233,
-        167,
-        141
+        157,
+        230,
+        183,
+        132,
+        22
       ]
     }
   ],
   "errors": [
     {
       "code": 6000,
-      "name": "surveyAlreadyPublished",
-      "msg": "Survey is already published"
+      "name": "campaignAlreadyPublished",
+      "msg": "Campaign is already published"
     },
     {
       "code": 6001,
-      "name": "surveyIdTooLong",
-      "msg": "Survey ID is too long"
+      "name": "campaignIdTooLong",
+      "msg": "Campaign ID is too long"
     },
     {
       "code": 6002,
-      "name": "titleTooLong",
-      "msg": "Title is too long"
+      "name": "semesterTooLong",
+      "msg": "Semester is too long"
     },
     {
       "code": 6003,
-      "name": "descriptionTooLong",
-      "msg": "Description is too long"
+      "name": "invalidCampaignType",
+      "msg": "Invalid campaign type"
     },
     {
       "code": 6004,
@@ -212,13 +349,18 @@ export type AnonymousSurvey = {
     },
     {
       "code": 6006,
-      "name": "surveyFull",
-      "msg": "Survey has reached maximum response limit"
+      "name": "noResponsesSubmitted",
+      "msg": "No responses submitted"
+    },
+    {
+      "code": 6007,
+      "name": "mismatchedDataLength",
+      "msg": "Mismatched data length"
     }
   ],
   "types": [
     {
-      "name": "survey",
+      "name": "surveyCampaign",
       "type": {
         "kind": "struct",
         "fields": [
@@ -227,16 +369,16 @@ export type AnonymousSurvey = {
             "type": "pubkey"
           },
           {
-            "name": "surveyId",
+            "name": "campaignId",
             "type": "string"
           },
           {
-            "name": "title",
+            "name": "semester",
             "type": "string"
           },
           {
-            "name": "description",
-            "type": "string"
+            "name": "campaignType",
+            "type": "u8"
           },
           {
             "name": "totalResponses",
@@ -264,7 +406,7 @@ export type AnonymousSurvey = {
             }
           },
           {
-            "name": "encryptedAnswers",
+            "name": "encryptedResponses",
             "type": {
               "vec": {
                 "array": [
@@ -292,6 +434,43 @@ export type AnonymousSurvey = {
           {
             "name": "encryptionPublicKey",
             "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "universityPerformance",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "universityId",
+            "type": "string"
+          },
+          {
+            "name": "totalCampaigns",
+            "type": "u32"
+          },
+          {
+            "name": "createdAt",
+            "type": "i64"
+          },
+          {
+            "name": "updatedAt",
+            "type": "i64"
+          },
+          {
+            "name": "finalMerkleRoot",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }

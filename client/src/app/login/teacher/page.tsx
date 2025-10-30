@@ -1,0 +1,129 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+
+export default function TeacherLoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const router = useRouter();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!email || !password) {
+      setError('Please enter both email and password');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Use teacher-specific login endpoint
+      const { apiClient } = await import('@/lib/api/client');
+      const response = await apiClient.post('/auth/teacher/login', {
+        email: email.trim(),
+        password
+      });
+
+      const authData = response.data;
+
+      // Store tokens and user data in localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('token', authData.token);
+        localStorage.setItem('refreshToken', authData.refreshToken);
+        if (authData.user) {
+          localStorage.setItem('user', JSON.stringify(authData.user));
+        }
+      }
+
+      // Check if teacher must change password
+      if (authData.user?.mustChangePassword) {
+        // Redirect to change password page
+        router.push('/login/teacher/change-password');
+      } else {
+        // Redirect to teacher dashboard
+        router.push('/teacher');
+      }
+    } catch (err: any) {
+      console.error('Teacher login error:', err);
+      setError(
+        err.response?.data?.error ||
+        err.message ||
+        'Login failed. Please check your credentials.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 px-4 py-12 flex items-center justify-center">
+      <div className="max-w-md w-full my-auto">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-white mb-2">Teacher Login</h1>
+          <p className="text-white/80">Access the teacher portal</p>
+        </div>
+
+        <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8">
+          {error && (
+            <div className="bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg mb-6">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label htmlFor="email" className="block text-white font-medium mb-2">
+                Email
+              </label>
+              <input
+                type="email"
+                id="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                placeholder="teacher@university.edu"
+                required
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-white font-medium mb-2">
+                Password
+              </label>
+              <input
+                type="password"
+                id="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                placeholder="Enter your password"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+            >
+              {loading ? 'Logging in...' : 'Login'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center space-y-3">
+            <Link href="/" className="block text-white/80 hover:text-white text-sm transition-colors">
+              ← Back to Home
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

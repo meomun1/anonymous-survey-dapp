@@ -4,7 +4,7 @@ import { AxiosResponse } from 'axios';
 export interface Token {
   id: string;
   token: string;
-  surveyId: string;
+  campaignId: string;
   studentEmail: string;
   used: boolean;
   isCompleted: boolean;
@@ -17,13 +17,13 @@ export interface TokenStatus {
   isValid: boolean;
   isUsed: boolean;
   isCompleted: boolean;
-  surveyId: string;
+  campaignId: string;
 }
 
 export interface TokenValidationResponse {
   valid: boolean;
   token: string;
-  surveyId: string;
+  campaignId: string;
   studentEmail: string;
   isCompleted: boolean;
 }
@@ -35,7 +35,7 @@ export interface TokenUsageResponse {
 }
 
 export interface BatchGenerateTokensData {
-  surveyId: string;
+  campaignId: string;
   students: { email: string }[];
 }
 
@@ -58,15 +58,15 @@ export const tokensApi = {
   getStatus: (token: string) =>
     apiClient.get<TokenStatus>(`/tokens/status/${token}`),
   
-  generate: (surveyId: string, emails: string[]) =>
-    apiClient.post<{ count: number }>('/tokens/generate', {
-      surveyId,
+  generate: (campaignId: string, emails: string[]) =>
+    apiClient.post<{ count: number }>('/tokens/campaign/generate', {
+      campaignId,
       emails,
     }),
   
-  distribute: (surveyId: string) =>
-    apiClient.post<{ count: number }>('/tokens/distribute', {
-      surveyId,
+  distribute: (campaignId: string) =>
+    apiClient.post<{ count: number }>('/tokens/campaign/distribute', {
+      campaignId,
     }),
 
   validateToken: (token: string): Promise<AxiosResponse<TokenValidationResponse>> =>
@@ -78,8 +78,11 @@ export const tokensApi = {
   markTokenAsCompleted: (token: string): Promise<AxiosResponse<Token>> =>
     apiClient.post(`/tokens/${token}/complete`),
 
-  getSurveyTokens: (surveyId: string): Promise<AxiosResponse<Token[]>> =>
-    apiClient.get(`/tokens/survey/${surveyId}`),
+  getCampaignTokens: (campaignId: string): Promise<AxiosResponse<Token[]>> =>
+    apiClient.get(`/tokens/campaign/${campaignId}`),
+  
+  getStudentTokens: (email: string): Promise<AxiosResponse<Token[]>> =>
+    apiClient.get(`/tokens/student/${email}`),
 
   batchGenerateTokens: (data: BatchGenerateTokensData): Promise<AxiosResponse<BatchGenerateTokensResponse>> =>
     apiClient.post('/tokens/batch-generate', data),
@@ -93,12 +96,12 @@ export const tokensApi = {
   resendTokenEmail: (tokenId: string): Promise<AxiosResponse<{ success: boolean }>> =>
     apiClient.post(`/tokens/${tokenId}/resend-email`),
 
-  getTokenStats: (surveyId: string): Promise<AxiosResponse<{
+  getTokenStats: (campaignId: string): Promise<AxiosResponse<{
     totalTokens: number;
     usedTokens: number;
     completedTokens: number;
     pendingTokens: number;
-  }>> => apiClient.get(`/tokens/survey/${surveyId}/stats`),
+  }>> => apiClient.get(`/tokens/campaign/${campaignId}/stats`),
 
   testEmailService: (): Promise<AxiosResponse<{ available: boolean; smtpTested: boolean; message: string }>> =>
     apiClient.get('/tokens/test-email'),

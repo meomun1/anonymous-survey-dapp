@@ -42,7 +42,7 @@ class NodeWallet implements Wallet {
 }
 
 /**
- * Service for interacting with the Solana blockchain anonymous survey program
+ * Service for interacting with the Solana blockchain anonymous survey program (University Scale)
  */
 export class BlockchainService {
   private program: Program<AnonymousSurvey>;
@@ -88,343 +88,309 @@ export class BlockchainService {
   }
 
   /**
-   * Validate survey creation parameters
-   * @param {string} surveyId - Survey ID to validate
-   * @param {string} title - Survey title to validate
-   * @param {string} description - Survey description to validate
-   */
-  private validateSurveyParams(surveyId: string, title: string, description: string) {
-    if (!surveyId || surveyId.length > 50) {
-      throw new Error('Survey ID must be 1-50 characters long');
-    }
-    if (!title || title.length > 100) {
-      throw new Error('Title must be 1-100 characters long');
-    }
-    if (!description || description.length > 500) {
-      throw new Error('Description must be 1-500 characters long');
-    }
-  }
-
-  /**
-   * Validate public key size
-   * @param {Buffer} publicKey - Public key to validate
-   * @param {string} name - Key name for error messages
-   */
-  private validatePublicKey(publicKey: Buffer, name: string) {
-    if (!publicKey || publicKey.length > 300) {
-      throw new Error(`${name} must be provided and no more than 300 bytes`);
-    }
-  }
-
-  /**
-   * Validate response submission parameters
-   * @param {Buffer} commitment - Commitment hash to validate
-   * @param {Buffer} encryptedAnswer - Encrypted answer to validate
-   */
-  private validateResponseParams(commitment: Buffer, encryptedAnswer: Buffer) {
-    if (!commitment || commitment.length !== 32) {
-      throw new Error('Commitment must be exactly 32 bytes');
-    }
-    if (!encryptedAnswer || encryptedAnswer.length !== 256) {
-      throw new Error('Encrypted answer must be exactly 256 bytes');
-    }
-  }
-
-  /**
-   * Create a new survey on the blockchain
-   * @param {string} surveyId - Unique survey identifier (shortId)
-   * @param {string} title - Survey title
-   * @param {string} description - Survey description
-   * @param {Buffer} blindSignaturePublicKey - Public key for blind signatures
-   * @param {Buffer} encryptionPublicKey - Public key for encryption
-   * @returns {Promise<PublicKey>} Survey PDA address
-   */
-  async createSurvey(
-    surveyId: string,
-    title: string,
-    description: string,
-    blindSignaturePublicKey: Buffer,
-    encryptionPublicKey: Buffer
-  ): Promise<PublicKey> {
-    try {
-      // Validate inputs
-      this.validateSurveyParams(surveyId, title, description);
-      this.validatePublicKey(blindSignaturePublicKey, 'Blind signature public key');
-      this.validatePublicKey(encryptionPublicKey, 'Encryption public key');
-
-      // Find PDA for survey - using shortId directly (no truncation needed)
-      const surveyIdBytes = Buffer.from(surveyId, 'utf8');
-      const [surveyPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('survey'),
-          this.authority.publicKey.toBuffer(),
-          surveyIdBytes
-        ],
-        this.program.programId
-      );
-
-      // Create survey on blockchain - authority is automatically signed by the provider
-      await this.program.methods
-        .createSurvey(
-          surveyId,
-          title,
-          description,
-          blindSignaturePublicKey,
-          encryptionPublicKey
-        )
-        .accounts({
-          survey: surveyPda,
-          authority: this.authority.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .rpc();
-
-      return surveyPda;
-    } catch (error: any) {
-      // Parse Anchor errors for better debugging
-      if (error.error?.errorCode) {
-        throw new Error(`Blockchain error: ${error.error.errorMessage || error.error.errorCode.code}`);
-      }
-      throw new Error(`Failed to create survey on blockchain: ${error.message}`);
-    }
-  }
-
-  /**
-   * Publish survey results on blockchain
-   * @param {string} surveyId - Survey ID to publish (shortId)
-   * @returns {Promise<string>} Transaction signature
-   */
-  async publishResults(surveyId: string): Promise<string> {
-    try {
-      if (!surveyId) {
-        throw new Error('Survey ID is required');
-      }
-
-      // Find PDA for survey - using shortId directly
-      const surveyIdBytes = Buffer.from(surveyId, 'utf8');
-      const [surveyPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('survey'),
-          this.authority.publicKey.toBuffer(),
-          surveyIdBytes
-        ],
-        this.program.programId
-      );
-
-      // Publish results on blockchain - authority is automatically signed by the provider
-      const signature = await this.program.methods
-        .publishResults()
-        .accounts({
-          survey: surveyPda,
-          authority: this.authority.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .rpc();
-
-      return signature;
-    } catch (error: any) {
-      // Parse Anchor errors for better debugging
-      if (error.error?.errorCode) {
-        throw new Error(`Blockchain error: ${error.error.errorMessage || error.error.errorCode.code}`);
-      }
-      throw new Error(`Failed to publish results on blockchain: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get survey data from blockchain
-   * @param {string} surveyId - Survey ID to fetch (shortId)
-   * @returns {Promise<{pda: PublicKey, data: any}>} Survey account data
-   */
-  async getSurvey(surveyId: string) {
-    try {
-      if (!surveyId) {
-        throw new Error('Survey ID is required');
-      }
-
-      // Find PDA for survey - using shortId directly
-      const surveyIdBytes = Buffer.from(surveyId, 'utf8');
-      const [surveyPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('survey'),
-          this.authority.publicKey.toBuffer(),
-          surveyIdBytes
-        ],
-        this.program.programId
-      );
-
-      // Fetch survey data from blockchain
-      const surveyAccount = await this.program.account.survey.fetch(surveyPda);
-      return {
-        pda: surveyPda,
-        data: surveyAccount
-      };
-    } catch (error: any) {
-      if (error.message.includes('Account does not exist')) {
-        throw new Error(`Survey with ID '${surveyId}' not found`);
-      }
-      throw new Error(`Failed to get survey from blockchain: ${error.message}`);
-    }
-  }
-
-  /**
-   * Submit encrypted response to blockchain
-   * @param {string} surveyId - Survey ID to submit to (shortId)
-   * @param {Buffer} commitment - Answer commitment hash
-   * @param {Buffer} encryptedAnswer - Encrypted answer
-   * @param {Keypair} userKeypair - User's keypair for signing
-   * @returns {Promise<string>} Transaction signature
-   */
-  async submitResponse(
-    surveyId: string,
-    commitment: Buffer,
-    encryptedAnswer: Buffer,
-    userKeypair: Keypair
-  ): Promise<string> {
-    try {
-      if (!surveyId) {
-        throw new Error('Survey ID is required');
-      }
-      
-      // Validate response parameters
-      this.validateResponseParams(commitment, encryptedAnswer);
-
-      // Find PDA for survey - using shortId directly
-      const surveyIdBytes = Buffer.from(surveyId, 'utf8');
-      const [surveyPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('survey'),
-          this.authority.publicKey.toBuffer(),
-          surveyIdBytes
-        ],
-        this.program.programId
-      );
-
-      // Convert buffers to fixed-size arrays (exactly what smart contract expects)
-      const commitmentArray: number[] = Array.from(commitment);
-      const encryptedAnswerArray: number[] = Array.from(encryptedAnswer);
-
-      // Submit response to blockchain
-      const signature = await this.program.methods
-        .submitResponse(commitmentArray, encryptedAnswerArray)
-        .accounts({
-          survey: surveyPda,
-          user: userKeypair.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .signers([userKeypair])  // User keypair signs the transaction
-        .rpc();
-
-      return signature;
-    } catch (error: any) {
-      // Parse Anchor errors for better debugging
-      if (error.error?.errorCode) {
-        const errorCode = error.error.errorCode.code;
-        const errorMsg = error.error.errorMessage;
-        
-        switch (errorCode) {
-          case 'SurveyFull':
-            throw new Error('Survey has reached maximum response limit');
-          case 'SurveyAlreadyPublished':
-            throw new Error('Cannot submit response to already published survey');
-          default:
-            throw new Error(`Blockchain error: ${errorMsg || errorCode}`);
-        }
-      }
-      throw new Error(`Failed to submit response to blockchain: ${error.message}`);
-    }
-  }
-
-  /**
-   * Submit encrypted response with user keypair from JSON string
-   * @param {string} surveyId - Survey ID to submit to
-   * @param {Buffer} commitment - Answer commitment hash
-   * @param {Buffer} encryptedAnswer - Encrypted answer
-   * @param {string} userKeyJson - JSON string of user's keypair byte array
-   * @returns {Promise<string>} Transaction signature
-   */
-  async submitResponseWithUserJson(
-    surveyId: string,
-    commitment: Buffer,
-    encryptedAnswer: Buffer,
-    userKeyJson: string
-  ): Promise<string> {
-    const userKeypair = BlockchainService.createKeypairFromJson(userKeyJson);
-    return await this.submitResponse(surveyId, commitment, encryptedAnswer, userKeypair);
-  }
-
-  /**
-   * Submit encrypted response using authority as both signer and fee payer
-   * This ensures the school (authority) pays all transaction costs
-   * @param {string} surveyId - Survey ID to submit to (shortId)
-   * @param {Buffer} commitment - Answer commitment hash
-   * @param {Buffer} encryptedAnswer - Encrypted answer
-   * @returns {Promise<string>} Transaction signature
-   */
-  async submitResponseAsAuthority(
-    surveyId: string,
-    commitment: Buffer,
-    encryptedAnswer: Buffer
-  ): Promise<string> {
-    try {
-      if (!surveyId) {
-        throw new Error('Survey ID is required');
-      }
-      
-      // Validate response parameters
-      this.validateResponseParams(commitment, encryptedAnswer);
-
-      // Find PDA for survey - using shortId directly
-      const surveyIdBytes = Buffer.from(surveyId, 'utf8');
-      const [surveyPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('survey'),
-          this.authority.publicKey.toBuffer(),
-          surveyIdBytes
-        ],
-        this.program.programId
-      );
-
-      // Convert buffers to fixed-size arrays (exactly what smart contract expects)
-      const commitmentArray: number[] = Array.from(commitment);
-      const encryptedAnswerArray: number[] = Array.from(encryptedAnswer);
-
-      // Submit response using authority as both user and fee payer
-      // This is appropriate for anonymous surveys where school pays all costs
-      const signature = await this.program.methods
-        .submitResponse(commitmentArray, encryptedAnswerArray)
-        .accounts({
-          survey: surveyPda,
-          user: this.authority.publicKey, // Authority acts as the user
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .rpc(); // Authority automatically signs and pays fees
-
-      return signature;
-    } catch (error: any) {
-      // Parse Anchor errors for better debugging
-      if (error.error?.errorCode) {
-        const errorCode = error.error.errorCode.code;
-        const errorMsg = error.error.errorMessage;
-        
-        switch (errorCode) {
-          case 'SurveyFull':
-            throw new Error('Survey has reached maximum response limit');
-          case 'SurveyAlreadyPublished':
-            throw new Error('Cannot submit response to already published survey');
-          default:
-            throw new Error(`Blockchain error: ${errorMsg || errorCode}`);
-        }
-      }
-      throw new Error(`Failed to submit response to blockchain: ${error.message}`);
-    }
-  }
-
-  /**
    * Get the current authority public key
    * @returns {PublicKey} Authority public key
    */
   getAuthorityPublicKey(): PublicKey {
     return this.authority.publicKey;
+  }
+
+  // ============================================================================
+  // CAMPAIGN-BASED METHODS (University Scale)
+  // ============================================================================
+
+  /**
+   * Initialize the final Merkle root account (university performance)
+   * @param {string} universityId - University identifier
+   * @returns {Promise<string>} Transaction signature
+   */
+  async initializeFinalRoot(universityId: string = 'international_university'): Promise<string> {
+    try {
+      const [universityPerformancePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('university_performance'), Buffer.from(universityId)],
+        this.program.programId
+      );
+
+      const signature = await this.program.methods
+        .initializeFinalRoot(universityId)
+        .accounts({
+          finalRoot: universityPerformancePda,
+          authority: this.authority.publicKey,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .rpc();
+
+      return signature;
+    } catch (error: any) {
+      throw new Error(`Failed to initialize final root: ${error.message}`);
+    }
+  }
+
+  /**
+   * Helper method to get campaign PDA with short campaignId (matching blockchain program)
+   * @param {string} campaignId - Campaign ID
+   * @returns {PublicKey} Campaign PDA
+   */
+  private getCampaignPDAWithShortId(campaignId: string): PublicKey {
+    const crypto = require('crypto');
+    const campaignIdHash = crypto.createHash('sha256').update(campaignId).digest();
+    const shortCampaignId = campaignIdHash.toString('hex').substring(0, 16);
+    
+    const [campaignPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from('campaign'), this.authority.publicKey.toBuffer(), Buffer.from(shortCampaignId)],
+      this.program.programId
+    );
+    return campaignPda;
+  }
+
+  /**
+   * Create a new survey campaign
+   * @param {Object} data - Campaign data
+   * @returns {Promise<string>} Campaign PDA address
+   */
+  async createCampaign(data: {
+    campaignId: string;
+    semester: string;
+    campaignType: number; // 0 = Course, 1 = Event
+    blindSignaturePublicKey: Buffer;
+    encryptionPublicKey: Buffer;
+  }): Promise<string> {
+    try {
+      const campaignPda = this.getCampaignPDAWithShortId(data.campaignId);
+      
+      // Use a shorter campaign_id for the blockchain program (first 16 chars of hash)
+      const crypto = require('crypto');
+      const campaignIdHash = crypto.createHash('sha256').update(data.campaignId).digest();
+      const shortCampaignId = campaignIdHash.toString('hex').substring(0, 16); // 16 chars max
+
+      // Use a shorter semester_id for the blockchain program (first 20 chars of hash)
+      const semesterHash = crypto.createHash('sha256').update(data.semester).digest();
+      const shortSemesterId = semesterHash.toString('hex').substring(0, 20); // 20 chars max (blockchain limit)
+
+      await this.program.methods
+        .createCampaign(
+          shortCampaignId,
+          shortSemesterId,
+          data.campaignType,
+          data.blindSignaturePublicKey,
+          data.encryptionPublicKey
+        )
+        .accounts({
+          campaign: campaignPda,
+          authority: this.authority.publicKey,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .rpc();
+
+      return campaignPda.toString();
+    } catch (error: any) {
+      throw new Error(`Failed to create campaign: ${error.message}`);
+    }
+  }
+
+  /**
+   * Submit batch responses to a campaign
+   * @param {string} campaignId - Campaign ID
+   * @param {Buffer[]} commitments - Array of commitment hashes
+   * @param {Buffer[]} encryptedResponses - Array of encrypted responses
+   * @returns {Promise<string>} Transaction signature
+   */
+  async submitBatchResponses(
+    campaignId: string,
+    commitments: Buffer[],
+    encryptedResponses: Buffer[]
+  ): Promise<string> {
+    try {
+      const campaignPda = this.getCampaignPDAWithShortId(campaignId);
+
+      // Convert buffers to byte arrays
+      const commitmentArrays = commitments.map(commitment => Array.from(commitment));
+      const responseArrays = encryptedResponses.map(response => Array.from(response));
+
+      const signature = await this.program.methods
+        .submitBatchResponses(
+          commitmentArrays,
+          responseArrays
+        )
+        .accounts({
+          campaign: campaignPda,
+          authority: this.authority.publicKey,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .rpc();
+
+      return signature;
+    } catch (error: any) {
+      throw new Error(`Failed to submit batch responses: ${error.message}`);
+    }
+  }
+
+  /**
+   * Publish campaign results with off-chain calculated Merkle root
+   * @param {string} campaignId - Campaign ID
+   * @param {string} merkleRoot - Off-chain calculated Merkle root (hex string)
+   * @returns {Promise<string>} Transaction signature
+   */
+  async publishCampaignResults(
+    campaignId: string,
+    merkleRoot: string
+  ): Promise<string> {
+    try {
+      const campaignPda = this.getCampaignPDAWithShortId(campaignId);
+
+      // Convert hex string to byte array
+      const merkleRootBytes = Buffer.from(merkleRoot, 'hex');
+
+      const signature = await this.program.methods
+        .publishCampaignResults(
+          Array.from(merkleRootBytes)
+        )
+        .accounts({
+          campaign: campaignPda,
+          authority: this.authority.publicKey,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .rpc();
+
+      return signature;
+    } catch (error: any) {
+      throw new Error(`Failed to publish campaign results: ${error.message}`);
+    }
+  }
+
+  /**
+   * Update final Merkle root (university performance)
+   * @param {string} finalMerkleRoot - Final Merkle root from all campaign roots (hex string)
+   * @param {string} universityId - University identifier
+   * @returns {Promise<string>} Transaction signature
+   */
+  async updateFinalMerkleRoot(finalMerkleRoot: string, universityId: string = 'international_university'): Promise<string> {
+    try {
+      const [universityPerformancePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('university_performance'), Buffer.from(universityId)],
+        this.program.programId
+      );
+
+      // Convert hex string to byte array
+      const finalRootBytes = Buffer.from(finalMerkleRoot, 'hex');
+
+      const signature = await this.program.methods
+        .updateFinalMerkleRoot(Array.from(finalRootBytes))
+        .accounts({
+          finalRoot: universityPerformancePda,
+          authority: this.authority.publicKey,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .rpc();
+
+      return signature;
+    } catch (error: any) {
+      throw new Error(`Failed to update final Merkle root: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get campaign data from blockchain
+   * @param {string} campaignId - Campaign ID
+   * @returns {Promise<Object>} Campaign data
+   */
+  async getCampaign(campaignId: string) {
+    try {
+      const campaignPda = this.getCampaignPDAWithShortId(campaignId);
+
+      const campaign = await this.program.account.surveyCampaign.fetch(campaignPda);
+      return campaign;
+    } catch (error: any) {
+      throw new Error(`Failed to get campaign: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get university performance data from blockchain
+   * @param {string} universityId - University identifier
+   * @returns {Promise<Object>} University performance data
+   */
+  async getUniversityPerformance(universityId: string = 'international_university') {
+    try {
+      const [universityPerformancePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('university_performance'), Buffer.from(universityId)],
+        this.program.programId
+      );
+
+      const universityPerformance = await this.program.account.universityPerformance.fetch(universityPerformancePda);
+      return universityPerformance;
+    } catch (error: any) {
+      throw new Error(`Failed to get university performance: ${error.message}`);
+    }
+  }
+
+  // ============================================================================
+  // UTILITY METHODS
+  // ============================================================================
+
+  /**
+   * Get campaign PDA address
+   * @param {string} campaignId - Campaign ID
+   * @returns {PublicKey} Campaign PDA
+   */
+  getCampaignPDA(campaignId: string): PublicKey {
+    return this.getCampaignPDAWithShortId(campaignId);
+  }
+
+  /**
+   * Get university performance PDA address
+   * @param {string} universityId - University identifier
+   * @returns {PublicKey} University performance PDA
+   */
+  getUniversityPerformancePDA(universityId: string = 'university_001'): PublicKey {
+    const [universityPerformancePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from('university_performance'), Buffer.from(universityId)],
+      this.program.programId
+    );
+    return universityPerformancePda;
+  }
+
+  /**
+   * Check if campaign exists on blockchain
+   * @param {string} campaignId - Campaign ID
+   * @returns {Promise<boolean>} True if campaign exists
+   */
+  async campaignExists(campaignId: string): Promise<boolean> {
+    try {
+      await this.getCampaign(campaignId);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Check if university performance account exists on blockchain
+   * @param {string} universityId - University identifier
+   * @returns {Promise<boolean>} True if account exists
+   */
+  async universityPerformanceExists(universityId: string = 'international_university'): Promise<boolean> {
+    try {
+      await this.getUniversityPerformance(universityId);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Get connection for direct blockchain queries
+   * @returns {Connection} Solana connection
+   */
+  getConnection(): Connection {
+    return this.provider.connection;
+  }
+
+  /**
+   * Get program instance for direct method calls
+   * @returns {Program} Anchor program instance
+   */
+  getProgram(): Program<AnonymousSurvey> {
+    return this.program;
   }
 }

@@ -6,12 +6,19 @@ const surveyService = new SurveyService();
 export class SurveyController {
   async createSurvey(req: Request, res: Response) {
     try {
-      const { title, description, templateId } = req.body;
+      const { campaignId, title, description, templateId, courseId, teacherId, status } = req.body;
+      if (!campaignId || !title) {
+        return res.status(400).json({ error: 'campaignId and title are required' });
+      }
       
       const survey = await surveyService.createSurvey({
+        campaignId,
         title,
         description,
         templateId,
+        courseId,
+        teacherId,
+        status,
       });
 
       res.status(201).json(survey);
@@ -42,20 +49,6 @@ export class SurveyController {
     } catch (error) {
       console.error('Failed to get surveys:', error);
       res.status(500).json({ error: 'Failed to get surveys' });
-    }
-  }
-
-  async getSurveyStats(req: Request, res: Response) {
-    try {
-      const { id } = req.params;
-      const stats = await surveyService.getSurveyStats(id);
-      res.json(stats);
-    } catch (error) {
-      console.error('Failed to get survey stats:', error);
-      if (error instanceof Error && error.message === 'Survey not found') {
-        return res.status(404).json({ error: 'Survey not found' });
-      }
-      res.status(500).json({ error: 'Failed to get survey stats' });
     }
   }
 
@@ -91,73 +84,25 @@ export class SurveyController {
     }
   }
 
-  async getSurveyResults(req: Request, res: Response) {
+  // New: get surveys by campaign
+  async getSurveysByCampaign(req: Request, res: Response) {
     try {
-      const { id } = req.params;
-      const results = await surveyService.getSurveyResults(id);
-      res.json(results);
-    } catch (error: any) {
-      console.error('Failed to get survey results:', error);
-      if (error.message === 'Survey not found') {
-        return res.status(404).json({ error: 'Survey not found' });
-      }
-      // Allow viewing unpublished survey results for admin
-      // if (error.message === 'Survey is not yet published') {
-      //   return res.status(400).json({ error: 'Survey is not yet published' });
-      // }
-      res.status(500).json({ error: 'Failed to get survey results' });
+      const { campaignId } = req.params;
+      const surveys = await surveyService.getSurveysByCampaign(campaignId);
+      res.json(surveys);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get campaign surveys' });
     }
   }
 
-  async publishSurveyWithMerkleProof(req: Request, res: Response) {
+  // New: get eligible surveys for a token
+  async getSurveysForToken(req: Request, res: Response) {
     try {
-      const { id } = req.params;
-      const result = await surveyService.publishSurveyWithMerkleProof(id);
-      res.json(result);
-    } catch (error: any) {
-      console.error('Failed to publish survey with Merkle proof:', error);
-      if (error.message === 'Survey not found') {
-        return res.status(404).json({ error: 'Survey not found' });
-      }
-      res.status(500).json({ error: 'Failed to publish survey with Merkle proof' });
-    }
-  }
-
-  async getSurveyPublicKeys(req: Request, res: Response) {
-    try {
-      const { id } = req.params;
-      const publicKeys = await surveyService.getSurveyPublicKeys(id);
-      
-      // Convert buffers to base64 for JSON transmission
-      const response = {
-        blindSignaturePublicKey: Buffer.from(publicKeys.blindSignaturePublicKey).toString('base64'),
-        encryptionPublicKey: Buffer.from(publicKeys.encryptionPublicKey).toString('base64')
-      };
-      
-      res.json(response);
-    } catch (error: any) {
-      console.error('Failed to get survey public keys:', error);
-      if (error.message === 'Survey not found') {
-        return res.status(404).json({ error: 'Survey not found' });
-      }
-      res.status(500).json({ error: 'Failed to get survey public keys' });
-    }
-  }
-
-  async processResponses(req: Request, res: Response) {
-    try {
-      const { id } = req.params;
-      const result = await surveyService.processResponsesFromBlockchain(id);
-      res.json(result);
-    } catch (error: any) {
-      console.error('Failed to process responses:', error);
-      if (error.message === 'Survey not found') {
-        return res.status(404).json({ error: 'Survey not found' });
-      }
-      if (error.message === 'No encrypted responses found on blockchain') {
-        return res.status(404).json({ error: 'No responses found on blockchain' });
-      }
-      res.status(500).json({ error: 'Failed to process responses from blockchain' });
+      const { token } = req.params;
+      const surveys = await surveyService.getSurveysForToken(token);
+      res.json(surveys);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get surveys for token' });
     }
   }
 } 

@@ -13,202 +13,247 @@ const redis = new Redis({
  */
 export class TokenService {
   /**
-   * Generate a secure random token
-   * @returns {string} 64-character hex token
+   * Generate campaign-level tokens for provided student emails
    */
-  private generateToken(): string {
-    return crypto.randomBytes(32).toString('hex');
-  }
+  async generateCampaignTokens(campaignId: string, studentEmails: string[]) {
+    const created: any[] = [];
+    for (const email of studentEmails) {
+      // Check if token already exists for this student and campaign
+      const existing = await db.query(
+        `SELECT id, token, campaign_id, student_email, used, is_completed, blockchain_submitted, created_at, used_at, completed_at
+         FROM survey_tokens WHERE campaign_id = $1 AND student_email = $2 LIMIT 1`,
+        [campaignId, email]
+      );
 
-  /**
-   * Create tokens for multiple students
-   * @param {string} surveyId - Survey ID to associate tokens with
-   * @param {Array} students - Array of student objects with email
-   * @returns {Promise<Array>} Created token records
-   */
-  async generateBatchTokens(surveyId: string, students: { email: string }[]) {
-    const tokens = await Promise.all(
-      students.map(async (student) => {
-        const tokenValue = this.generateToken();
-        const id = crypto.randomUUID();
-        const result = await db.query(
-          `INSERT INTO tokens (id, survey_id, token, student_email, used, is_completed, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, false, false, NOW(), NOW())
-           RETURNING id, survey_id, token, student_email, used, is_completed AS "isCompleted", created_at, updated_at`,
-          [id, surveyId, tokenValue, student.email]
-        );
-        const row = result.rows[0];
-        return {
+      if (existing.rowCount && existing.rowCount > 0) {
+        // Token already exists, use existing one
+        const row = existing.rows[0];
+        const record = {
           id: row.id,
-          surveyId: row.survey_id,
+          campaignId: row.campaign_id,
           token: row.token,
           studentEmail: row.student_email,
-          used: row.used,
-          isCompleted: row.isCompleted ?? row.iscompleted ?? row["isCompleted"],
+          used: !!row.used,
+          isCompleted: !!row.is_completed,
+          blockchainSubmitted: !!row.blockchain_submitted,
           createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        } as any;
-      })
-    );
-
-    // Cache the tokens
-    await Promise.all(
-      tokens.map(token => 
-        redis.set(`token:${token.token}`, JSON.stringify(token), 'EX', 3600)
-      )
-    );
-
-    return tokens;
-  }
-
-  /**
-   * Validate if a token can be used for survey participation
-   * @param {string} token - Token to validate
-   * @param {string} surveyId - Optional survey ID to check against
-   * @returns {Promise<Object|null>} Token data if valid, null if invalid
-   */
-  async validateToken(token: string, surveyId?: string) {
-    // Try to get from cache first
-    const cachedToken = await redis.get(`token:${token}`);
-    if (cachedToken) {
-      const tokenData = JSON.parse(cachedToken);
-      if (this.isTokenValid(tokenData, surveyId)) {
-        return tokenData;
+          usedAt: row.used_at,
+          completedAt: row.completed_at
+        };
+        created.push(record);
+        continue;
       }
-      return null;
+
+      // Create new token
+      const tokenValue = this.generateToken();
+      const id = crypto.randomUUID();
+      const result = await db.query(
+        `INSERT INTO survey_tokens (id, token, campaign_id, student_email)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, token, campaign_id, student_email, used, is_completed, blockchain_submitted, created_at, used_at, completed_at`,
+        [id, tokenValue, campaignId, email]
+      );
+      const row = result.rows[0];
+      const record = {
+        id: row.id,
+        campaignId: row.campaign_id,
+        token: row.token,
+        studentEmail: row.student_email,
+        used: !!row.used,
+        isCompleted: !!row.is_completed,
+        blockchainSubmitted: !!row.blockchain_submitted,
+        createdAt: row.created_at,
+        usedAt: row.used_at,
+        completedAt: row.completed_at
+      };
+      created.push(record);
+      await redis.set(`token:${record.token}`, JSON.stringify(record), 'EX', 3600);
     }
+    return created;
+  }
 
-    // If not in cache, get from database
-    const result = await db.query(
-      `SELECT id, survey_id, token, student_email, used, is_completed AS "isCompleted", created_at, updated_at
-       FROM tokens WHERE token = $1 LIMIT 1`,
-      [token]
-    );
-    const row = result.rows[0];
-    const tokenData = row
-      ? {
-          id: row.id,
-          surveyId: row.survey_id,
-          token: row.token,
-          studentEmail: row.student_email,
-          used: row.used,
-          isCompleted: row.isCompleted,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        }
-      : null;
-
-    if (!tokenData) return null;
-
-    // Cache the token if it's valid
-    if (this.isTokenValid(tokenData, surveyId)) {
-      await redis.set(`token:${token}`, JSON.stringify(tokenData), 'EX', 3600);
+  /**
+   * Validate a campaign token (survey_tokens)
+   * Only returns valid token data if campaign is in "launched" status
+   */
+  async validateCampaignToken(token: string) {
+    const cached = await redis.get(`token:${token}`);
+    if (cached) {
+      const tokenData = JSON.parse(cached);
+      // Check campaign status even for cached tokens
+      const campaignStatus = await db.query(
+        `SELECT status FROM survey_campaigns WHERE id = $1 LIMIT 1`,
+        [tokenData.campaignId]
+      );
+      if (!campaignStatus.rows[0] || campaignStatus.rows[0].status !== 'launched') {
+        return null;
+      }
       return tokenData;
     }
 
-    return null;
-  }
-
-  /**
-   * Check if token meets validation criteria
-   * @param {any} tokenData - Token object to validate
-   * @param {string} surveyId - Optional survey ID to check
-   * @returns {boolean} True if valid
-   */
-  private isTokenValid(tokenData: any, surveyId?: string): boolean {
-    if (!tokenData) return false;
-    
-    // Only check if token is completed
-    if (tokenData.isCompleted) return false;
-    
-    // Check if token belongs to the correct survey (if surveyId provided)
-    if (surveyId && tokenData.surveyId !== surveyId) return false;
-    
-    return true;
-  }
-
-  /**
-   * Mark token as used when student starts survey
-   * @param {string} token - Token to mark as used
-   * @returns {Promise<Object>} Updated token
-   */
-  async markTokenAsUsed(token: string) {
     const result = await db.query(
-      `UPDATE tokens SET used = true, updated_at = NOW() WHERE token = $1
-       RETURNING id, survey_id, token, student_email, used, is_completed AS "isCompleted", created_at, updated_at`,
+      `SELECT st.id, st.token, st.campaign_id, st.student_email, st.used, st.is_completed, st.blockchain_submitted, st.created_at, st.used_at, st.completed_at,
+              sc.status as campaign_status
+       FROM survey_tokens st
+       JOIN survey_campaigns sc ON st.campaign_id = sc.id
+       WHERE st.token = $1 LIMIT 1`,
       [token]
     );
     const row = result.rows[0];
-    const updatedToken = row
-      ? {
-          id: row.id,
-          surveyId: row.survey_id,
-          token: row.token,
-          studentEmail: row.student_email,
-          used: row.used,
-          isCompleted: row.isCompleted,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        }
-      : null;
+    if (!row) return null;
 
-    // Invalidate cache
-    await redis.del(`token:${token}`);
+    // Only allow access if campaign is launched
+    if (row.campaign_status !== 'launched') {
+      return null;
+    }
 
-    return updatedToken;
+    const tokenData = {
+      id: row.id,
+      campaignId: row.campaign_id,
+      token: row.token,
+      studentEmail: row.student_email,
+      used: !!row.used,
+      isCompleted: !!row.is_completed,
+      blockchainSubmitted: !!row.blockchain_submitted,
+      createdAt: row.created_at,
+      usedAt: row.used_at,
+      completedAt: row.completed_at
+    };
+    await redis.set(`token:${token}`, JSON.stringify(tokenData), 'EX', 3600);
+    return tokenData;
   }
 
   /**
-   * Mark token as completed when student finishes survey
-   * @param {string} token - Token to mark as completed
-   * @returns {Promise<Object>} Updated token
+   * Mark campaign token as used
    */
-  async markTokenAsCompleted(token: string) {
+  async markCampaignTokenUsed(token: string) {
     const result = await db.query(
-      `UPDATE tokens SET is_completed = true, updated_at = NOW() WHERE token = $1
-       RETURNING id, survey_id, token, student_email, used, is_completed AS "isCompleted", created_at, updated_at`,
+      `UPDATE survey_tokens SET used = true, used_at = NOW(), updated_at = NOW() WHERE token = $1
+       RETURNING id, token, campaign_id, student_email, used, is_completed, blockchain_submitted, created_at, used_at, completed_at`,
       [token]
     );
     const row = result.rows[0];
-    const updatedToken = row
-      ? {
-          id: row.id,
-          surveyId: row.survey_id,
-          token: row.token,
-          studentEmail: row.student_email,
-          used: row.used,
-          isCompleted: row.isCompleted,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        }
-      : null;
-
-    // Invalidate cache
-    await redis.del(`token:${token}`);
-
-    return updatedToken;
+    if (!row) return null;
+    const updated = {
+      id: row.id,
+      campaignId: row.campaign_id,
+      token: row.token,
+      studentEmail: row.student_email,
+      used: !!row.used,
+      isCompleted: !!row.is_completed,
+      blockchainSubmitted: !!row.blockchain_submitted,
+      createdAt: row.created_at,
+      usedAt: row.used_at,
+      completedAt: row.completed_at
+    };
+    await redis.set(`token:${token}`, JSON.stringify(updated), 'EX', 3600);
+    return updated;
   }
 
   /**
-   * Get all tokens for a survey
-   * @param {string} surveyId - Survey ID to get tokens for
-   * @returns {Promise<Array>} Array of token records
+   * Mark campaign token as completed
    */
-  async getSurveyTokens(surveyId: string) {
+  async markCampaignTokenCompleted(token: string) {
     const result = await db.query(
-      `SELECT id, survey_id, token, student_email, used, is_completed AS "isCompleted", created_at, updated_at
-       FROM tokens WHERE survey_id = $1 ORDER BY created_at DESC`,
-      [surveyId]
+      `UPDATE survey_tokens SET is_completed = true, completed_at = NOW(), updated_at = NOW() WHERE token = $1
+       RETURNING id, token, campaign_id, student_email, used, is_completed, blockchain_submitted, created_at, used_at, completed_at`,
+      [token]
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const updated = {
+      id: row.id,
+      campaignId: row.campaign_id,
+      token: row.token,
+      studentEmail: row.student_email,
+      used: !!row.used,
+      isCompleted: !!row.is_completed,
+      blockchainSubmitted: !!row.blockchain_submitted,
+      createdAt: row.created_at,
+      usedAt: row.used_at,
+      completedAt: row.completed_at
+    };
+    await redis.set(`token:${token}`, JSON.stringify(updated), 'EX', 3600);
+    return updated;
+  }
+
+  /**
+   * Mark campaign token as blockchain submitted
+   */
+  async markTokenBlockchainSubmitted(token: string) {
+    const result = await db.query(
+      `UPDATE survey_tokens SET blockchain_submitted = true, updated_at = NOW() WHERE token = $1
+       RETURNING id, token, campaign_id, student_email, used, is_completed, blockchain_submitted, created_at, used_at, completed_at`,
+      [token]
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const updated = {
+      id: row.id,
+      campaignId: row.campaign_id,
+      token: row.token,
+      studentEmail: row.student_email,
+      used: !!row.used,
+      isCompleted: !!row.is_completed,
+      blockchainSubmitted: !!row.blockchain_submitted,
+      createdAt: row.created_at,
+      usedAt: row.used_at,
+      completedAt: row.completed_at
+    };
+    await redis.set(`token:${token}`, JSON.stringify(updated), 'EX', 3600);
+    return updated;
+  }
+
+  /**
+   * Get tokens for a campaign
+   */
+  async getCampaignTokens(campaignId: string) {
+    const result = await db.query(
+      `SELECT id, token, campaign_id, student_email, used, is_completed, blockchain_submitted, created_at, used_at, completed_at
+       FROM survey_tokens WHERE campaign_id = $1 ORDER BY created_at DESC`,
+      [campaignId]
     );
     return result.rows.map((row) => ({
       id: row.id,
-      surveyId: row.survey_id,
+      campaignId: row.campaign_id,
       token: row.token,
       studentEmail: row.student_email,
-      used: row.used,
-      isCompleted: row.isCompleted,
+      used: !!row.used,
+      isCompleted: !!row.is_completed,
+      blockchainSubmitted: !!row.blockchain_submitted,
       createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      usedAt: row.used_at,
+      completedAt: row.completed_at
     }));
+  }
+
+  /**
+   * Get tokens for a student (optionally filtered by campaign)
+   */
+  async getStudentTokens(studentEmail: string, campaignId?: string) {
+    const result = await db.query(
+      `SELECT id, token, campaign_id, student_email, used, is_completed, blockchain_submitted, created_at, used_at, completed_at
+       FROM survey_tokens
+       WHERE student_email = $1 ${campaignId ? 'AND campaign_id = $2' : ''}
+       ORDER BY created_at DESC`,
+      campaignId ? [studentEmail, campaignId] : [studentEmail]
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      campaignId: row.campaign_id,
+      token: row.token,
+      studentEmail: row.student_email,
+      used: !!row.used,
+      isCompleted: !!row.is_completed,
+      blockchainSubmitted: !!row.blockchain_submitted,
+      createdAt: row.created_at,
+      usedAt: row.used_at,
+      completedAt: row.completed_at
+    }));
+  }
+
+  // Generate a secure random token (shared)
+  private generateToken(): string {
+    return crypto.randomBytes(32).toString('hex');
   }
 } 

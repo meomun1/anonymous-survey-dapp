@@ -1,12 +1,7 @@
 import db from '../config/database';
 import crypto from 'crypto';
 import Redis from 'ioredis';
-import { RSABSSA } from '@cloudflare/blindrsa-ts';
-import { webcrypto } from 'crypto';
-import { BlockchainService } from './blockchain.service';
 import { CryptoService } from './crypto.service';
-import { createHash } from 'crypto';
-import { generateShortId, isValidShortId } from '../utils/shortId';
 
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
@@ -19,185 +14,126 @@ export class SurveyService {
   private static readonly CACHE_TTL = 3600; // 1 hour
 
   private cryptoService: CryptoService;
-  private blockchainService: BlockchainService | null = null;
   private fallbackMode: boolean;
 
   constructor() {
     this.cryptoService = new CryptoService();
     this.fallbackMode = process.env.SOLANA_FALLBACK_MODE === 'true';
-    
-    // Only initialize blockchain service if not in fallback mode
-    if (!this.fallbackMode) {
-      try {
-        this.blockchainService = new BlockchainService();
-        console.log('✅ Blockchain service initialized');
-      } catch (error) {
-        console.warn('⚠️ Failed to initialize blockchain service, enabling fallback mode:', error);
-        this.fallbackMode = true;
-      }
-    } else {
-      console.log('📋 Running in fallback mode - blockchain operations disabled');
-    }
   }
 
   /**
-   * Create a new survey with automatic key generation
-   * @param {Object} data - Survey data (title, description, templateId)
-   * @returns {Promise<Object>} Created survey object
+   * Get eligible surveys for a student by campaign token, with completion status
+   */
+  async getSurveysForToken(token: string) {
+    // 1) Resolve token -> campaignId, studentEmail
+    const tokenRes = await db.query(
+      `SELECT campaign_id, student_email FROM survey_tokens WHERE token = $1 LIMIT 1`,
+      [token]
+    );
+    if (tokenRes.rowCount === 0) {
+      throw new Error('Invalid token');
+    }
+    const campaignId = tokenRes.rows[0].campaign_id as string;
+    const studentEmail = tokenRes.rows[0].student_email as string;
+
+    // 2) Resolve studentId and semesterId
+    const studentRes = await db.query(
+      `SELECT id FROM students WHERE email = $1 LIMIT 1`,
+      [studentEmail]
+    );
+    if (studentRes.rowCount === 0) {
+      throw new Error('Student not found for token email');
+    }
+    const studentId = studentRes.rows[0].id as string;
+
+    // 2.5) Verify campaign exists
+    const campaignRes = await db.query(
+      `SELECT id FROM survey_campaigns WHERE id = $1 LIMIT 1`,
+      [campaignId]
+    );
+    if (campaignRes.rowCount === 0) {
+      throw new Error('Campaign not found for token');
+    }
+
+    // 3) Eligible surveys = surveys in this campaign for student's enrolled courses
+    const surveysRes = await db.query(
+      `SELECT
+         s.*,
+         c.name as course_name, c.code as course_code,
+         t.name as teacher_name,
+         CASE WHEN scp.id IS NOT NULL THEN true ELSE false END as is_completed
+       FROM surveys s
+       LEFT JOIN courses c ON s.course_id = c.id
+       LEFT JOIN teachers t ON s.teacher_id = t.id
+       JOIN enrollments e ON e.course_id = s.course_id AND e.campaign_id = $1 AND e.student_id = $2
+       LEFT JOIN survey_completions scp ON scp.survey_id = s.id AND scp.student_email = $3
+       WHERE s.campaign_id = $1
+       ORDER BY c.code ASC, t.name ASC`,
+      [campaignId, studentId, studentEmail]
+    );
+
+    return surveysRes.rows.map((row: any) => ({
+      id: row.id,
+      campaignId: row.campaign_id,
+      title: row.title,
+      description: row.description,
+      templateId: row.template_id,
+      totalQuestions: row.total_questions,
+      courseId: row.course_id,
+      teacherId: row.teacher_id,
+      courseName: row.course_name,
+      courseCode: row.course_code,
+      teacherName: row.teacher_name,
+      status: row.status,
+      totalResponses: row.total_responses,
+      openedAt: row.opened_at,
+      closedAt: row.closed_at,
+      createdAt: row.created_at,
+      isCompleted: !!row.is_completed
+    }));
+  }
+
+  /**
+   * Create a new survey as a child of a campaign
    */
   async createSurvey(data: {
+    campaignId: string;
     title: string;
     description?: string;
     templateId?: string;
+    courseId?: string | null;
+    teacherId?: string | null;
+    status?: 'draft' | 'active' | 'closed' | 'published';
   }) {
-    // Generate a unique short ID for blockchain operations
-    let shortId: string;
-    let isUnique = false;
-    
-    while (!isUnique) {
-      shortId = generateShortId(8);
-      const existing = await db.query(
-        'SELECT 1 FROM surveys WHERE short_id = $1 LIMIT 1',
-        [shortId]
-      );
-      isUnique = existing.rowCount === 0;
-    }
-    
-    // Generate blind signature key pair
-    const blindSuite = RSABSSA.SHA384.PSS.Randomized();
-    const { privateKey: blindSignaturePrivateKey, publicKey: blindSignaturePublicKey } = 
-      await blindSuite.generateKey({
-        modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1])
-      });
-
-    // Generate encryption key pair
-    const { privateKey: encryptionPrivateKey, publicKey: encryptionPublicKey } = 
-      await webcrypto.subtle.generateKey(
-        {
-          name: "RSA-OAEP",
-          modulusLength: 2048,
-          publicExponent: new Uint8Array([1, 0, 1]),
-          hash: "SHA-256",
-        },
-        true,
-        ["encrypt", "decrypt"]
-      );
-
-    // Export keys for storage
-    const blindPrivateKey = await webcrypto.subtle.exportKey('pkcs8', blindSignaturePrivateKey);
-    const blindPublicKey = await webcrypto.subtle.exportKey('spki', blindSignaturePublicKey);
-    const encryptionPrivateKeyExported = await webcrypto.subtle.exportKey('pkcs8', encryptionPrivateKey);
-    const encryptionPublicKeyExported = await webcrypto.subtle.exportKey('spki', encryptionPublicKey);
-
-    // Create survey in database
     const surveyId = crypto.randomUUID();
     const templateId = data.templateId || 'teaching_quality_25q';
-    const totalQuestions = 25; // Default for teaching quality template
+    const totalQuestions = 25;
     
     const insertSurvey = await db.query(
       `INSERT INTO surveys (
-         id, short_id, title, description, template_id, total_questions,
-         blind_signature_public_key, encryption_public_key,
-         is_published, total_responses, created_at, updated_at
+         id, campaign_id, title, description, template_id, total_questions,
+         course_id, teacher_id, status, created_at, updated_at
        ) VALUES (
          $1, $2, $3, $4, $5, $6,
-         $7, $8,
-         false, 0, NOW(), NOW()
-       ) RETURNING id, short_id, title, description, template_id, total_questions, blind_signature_public_key, encryption_public_key, is_published, total_responses, created_at, updated_at`,
+         $7, $8, $9, NOW(), NOW()
+       ) RETURNING *`,
       [
         surveyId,
-        shortId!,
+        data.campaignId,
         data.title,
-        data.description ?? null,
+        data.description || null,
         templateId,
         totalQuestions,
-        Buffer.from(blindPublicKey).toString('base64'),
-        Buffer.from(encryptionPublicKeyExported).toString('base64'),
-      ]
-    );
-    const survey = {
-      id: insertSurvey.rows[0].id,
-      shortId: insertSurvey.rows[0].short_id,
-      title: insertSurvey.rows[0].title,
-      description: insertSurvey.rows[0].description,
-      templateId: insertSurvey.rows[0].template_id,
-      totalQuestions: insertSurvey.rows[0].total_questions,
-      blindSignaturePublicKey: insertSurvey.rows[0].blind_signature_public_key,
-      encryptionPublicKey: insertSurvey.rows[0].encryption_public_key,
-      isPublished: insertSurvey.rows[0].is_published,
-      totalResponses: insertSurvey.rows[0].total_responses,
-      createdAt: insertSurvey.rows[0].created_at,
-      updatedAt: insertSurvey.rows[0].updated_at,
-    } as any;
-
-    // Store private keys securely
-    await db.query(
-      `INSERT INTO survey_private_keys (id, survey_id, blind_signature_private_key, encryption_private_key, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, NOW(), NOW())`,
-      [
-        crypto.randomUUID(),
-        survey.id,
-        Buffer.from(blindPrivateKey).toString('base64'),
-        Buffer.from(encryptionPrivateKeyExported).toString('base64'),
+        data.courseId || null,
+        data.teacherId || null,
+        data.status || 'draft'
       ]
     );
 
-    // Clear surveys list cache
+    // Invalidate list cache
     await redis.del(SurveyService.SURVEY_LIST_CACHE_KEY);
 
-    // Check if we should use blockchain
-    if (this.fallbackMode || !this.blockchainService) {
-      console.log('📋 Survey created without blockchain integration (fallback mode or service unavailable)');
-      return survey;
-    }
-
-    try {
-      console.log('🔗 Attempting to create survey on blockchain with shortId:', survey.shortId);
-      
-      // Create survey on blockchain using shortId
-      const surveyPda = await this.blockchainService.createSurvey(
-        survey.shortId,  // Use shortId instead of UUID
-        survey.title,
-        survey.description || '',
-        Buffer.from(blindPublicKey),
-        Buffer.from(encryptionPublicKeyExported)
-      );
-
-      console.log('🎯 Blockchain survey created, PDA:', surveyPda.toString());
-
-      // Update survey with blockchain address
-      const updateRes = await db.query(
-        `UPDATE surveys SET blockchain_address = $2, updated_at = NOW() WHERE id = $1 RETURNING *`,
-        [survey.id, surveyPda.toString()]
-      );
-      const updatedSurvey = updateRes.rows[0];
-
-      console.log(`✅ Survey created successfully with shortId: ${survey.shortId} and blockchain address: ${surveyPda.toString()}`);
-      return updatedSurvey;
-    } catch (error: any) {
-      console.error('❌ Failed to create survey on blockchain:', error);
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack,
-        code: error.code
-      });
-      
-      // If blockchain creation fails, rollback database changes
-      const client = await db.getClient();
-      try {
-        await client.query('BEGIN');
-        await client.query('DELETE FROM survey_private_keys WHERE survey_id = $1', [survey.id]);
-        await client.query('DELETE FROM surveys WHERE id = $1', [survey.id]);
-        await client.query('COMMIT');
-      } catch (e) {
-        await client.query('ROLLBACK');
-        throw e;
-      } finally {
-        client.release();
-      }
-      throw new Error('Failed to create survey on blockchain: ' + error.message);
-    }
+    return insertSurvey.rows[0];
   }
 
   /**
@@ -283,39 +219,25 @@ export class SurveyService {
     }
 
     const surveyRes = await db.query(
-      `SELECT * FROM surveys WHERE id = $1 LIMIT 1`,
+      `SELECT s.*, c.name as course_name, c.code as course_code, t.name as teacher_name
+       FROM surveys s
+       LEFT JOIN courses c ON s.course_id = c.id
+       LEFT JOIN teachers t ON s.teacher_id = t.id
+       WHERE s.id = $1 LIMIT 1`,
       [id]
     );
     const survey = surveyRes.rows[0];
     if (!survey) {
       throw new Error('Survey not found');
     }
-    const tokensRes = await db.query(
-      `SELECT * FROM tokens WHERE survey_id = $1`,
-      [id]
-    );
-    const responsesRes = await db.query(
-      `SELECT * FROM survey_responses WHERE survey_id = $1`,
-      [id]
-    );
-    const surveyWithRelations = {
-      ...survey,
-      tokens: tokensRes.rows,
-      responses: responsesRes.rows,
-    };
-
-    if (!survey) {
-      throw new Error('Survey not found');
-    }
-
     await redis.set(
       `${SurveyService.SURVEY_CACHE_PREFIX}${id}`,
-      JSON.stringify(surveyWithRelations),
+      JSON.stringify(survey),
       'EX',
       SurveyService.CACHE_TTL
     );
 
-    return surveyWithRelations as any;
+    return survey as any;
   }
 
   /**
@@ -328,18 +250,13 @@ export class SurveyService {
       return JSON.parse(cachedSurveys);
     }
 
-    const surveysRes = await db.query(`SELECT * FROM surveys ORDER BY created_at DESC`);
-    const surveys = await Promise.all(
-      surveysRes.rows.map(async (s) => {
-        const counts = await db.query(
-          `SELECT 
-             (SELECT COUNT(*) FROM survey_responses WHERE survey_id = $1) AS responses,
-             (SELECT COUNT(*) FROM tokens WHERE survey_id = $1) AS tokens`,
-          [s.id]
-        );
-        return { ...s, _count: { responses: Number(counts.rows[0].responses), tokens: Number(counts.rows[0].tokens) } };
-      })
-    );
+    const surveysRes = await db.query(`
+      SELECT s.*, c.name as course_name, c.code as course_code, t.name as teacher_name
+      FROM surveys s
+      LEFT JOIN courses c ON s.course_id = c.id
+      LEFT JOIN teachers t ON s.teacher_id = t.id
+      ORDER BY s.created_at DESC`);
+    const surveys = surveysRes.rows;
 
     await redis.set(
       SurveyService.SURVEY_LIST_CACHE_KEY,
@@ -352,29 +269,60 @@ export class SurveyService {
   }
 
   /**
-   * Get survey participation statistics
-   * @param {string} id - Survey ID
-   * @returns {Promise<Object>} Statistics object with participation rates
+   * Get all surveys by campaign
    */
-  async getSurveyStats(id: string) {
-    const tokensRes = await db.query(`SELECT used, is_completed AS "isCompleted" FROM tokens WHERE survey_id = $1`, [id]);
-    const responsesRes = await db.query(`SELECT id FROM survey_responses WHERE survey_id = $1`, [id]);
+  async getSurveysByCampaign(campaignId: string) {
+    const result = await db.query(
+      `SELECT s.*, c.name as course_name, c.code as course_code, t.name as teacher_name
+       FROM surveys s
+       LEFT JOIN courses c ON s.course_id = c.id
+       LEFT JOIN teachers t ON s.teacher_id = t.id
+       WHERE s.campaign_id = $1
+       ORDER BY c.code ASC, t.name ASC`,
+      [campaignId]
+    );
+    return result.rows;
+  }
 
-    // If there are no tokens and no responses, still return zeros
+  async getStudentSurveys(token: string) {
+    // Reuse the existing getSurveysForToken logic
+    const surveys = await this.getSurveysForToken(token);
 
-    const totalTokens = Number(tokensRes.rowCount || 0);
-    const usedTokens = tokensRes.rows.filter((t) => t.used).length;
-    const completedTokens = tokensRes.rows.filter((t) => t.isCompleted || t.iscompleted).length;
-    const totalResponses = responsesRes.rowCount;
+    // Get token info for additional data
+    const tokenRes = await db.query(
+      `SELECT id, token, used, completed_at FROM survey_tokens WHERE token = $1 LIMIT 1`,
+      [token]
+    );
 
-    return {
-      totalTokens,
-      usedTokens,
-      completedTokens,
-      totalResponses,
-      participationRate: totalTokens > 0 ? (usedTokens / totalTokens) * 100 : 0,
-      completionRate: totalTokens > 0 ? (completedTokens / totalTokens) * 100 : 0
-    };
+    if (tokenRes.rowCount === 0) {
+      return [];
+    }
+
+    const tokenData = tokenRes.rows[0];
+
+    // Get campaign name
+    const campaignRes = await db.query(
+      `SELECT name FROM survey_campaigns WHERE id = $1`,
+      [surveys[0]?.campaignId]
+    );
+
+    const campaignName = campaignRes.rows[0]?.name || '';
+
+    // Transform to match frontend expectations
+    return surveys.map(survey => ({
+      id: survey.id,
+      tokenId: tokenData.id,
+      token: tokenData.token,
+      courseCode: survey.courseCode,
+      courseName: survey.courseName,
+      campaignName: campaignName,
+      campaignId: survey.campaignId,
+      teacherId: survey.teacherId,
+      teacherName: survey.teacherName,
+      numQuestions: survey.totalQuestions || 25,
+      used: tokenData.used,
+      completedAt: tokenData.completed_at
+    }));
   }
 
   /**
@@ -393,9 +341,6 @@ export class SurveyService {
     const client = await db.getClient();
     try {
       await client.query('BEGIN');
-      await client.query('DELETE FROM survey_responses WHERE survey_id = $1', [id]);
-      await client.query('DELETE FROM tokens WHERE survey_id = $1', [id]);
-      await client.query('DELETE FROM survey_private_keys WHERE survey_id = $1', [id]);
       await client.query('DELETE FROM surveys WHERE id = $1', [id]);
       await client.query('COMMIT');
     } catch (e) {
@@ -414,379 +359,4 @@ export class SurveyService {
     return { success: true };
   }
   
-
-  /**
-   * Get survey public keys for client operations
-   * @param {string} surveyId - Survey ID
-   * @returns {Promise<{blindSignaturePublicKey: Buffer, encryptionPublicKey: Buffer}>} Public keys
-   */
-  async getSurveyPublicKeys(surveyId: string) {
-    try {
-      return await this.cryptoService.getSurveyPublicKeys(surveyId);
-    } catch (error: any) {
-      throw new Error(`Failed to get survey public keys: ${error.message}`);
-    }
-  }
-
-  /**
-   * Parse a single response into individual answers
-   * @param {string} responseText - Response string (e.g., "12345..123")
-   * @param {number} totalQuestions - Total number of questions (default: 25)
-   * @returns {Array<{questionNumber: number, answerValue: number, answerLabel: string}>} Parsed answers
-   */
-  parseIndividualResponse(responseText: string, totalQuestions: number = 25) {
-    if (responseText.length !== totalQuestions) {
-      throw new Error(`Response length mismatch: expected ${totalQuestions}, got ${responseText.length}`);
-    }
-
-    const parsedAnswers = [];
-    const answerLabels = ['Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
-
-    for (let i = 0; i < responseText.length; i++) {
-      const answerValue = parseInt(responseText[i]);
-      if (answerValue < 1 || answerValue > 5) {
-        throw new Error(`Invalid answer value: ${answerValue} at position ${i + 1}`);
-      }
-
-      parsedAnswers.push({
-        questionNumber: i + 1,
-        answerValue: answerValue,
-        answerLabel: answerLabels[answerValue - 1]
-      });
-    }
-
-    return parsedAnswers;
-  }
-
-  /**
-   * Parse survey responses and generate statistics
-   * @param {string} surveyId - Survey ID
-   * @param {string[]} responses - Array of decrypted response strings (e.g., "12345..123")
-   * @returns {Promise<void>}
-   */
-  async generateResponseStatistics(surveyId: string, responses: string[]): Promise<void> {
-    try {
-      // Get survey info to determine number of questions
-      const surveyRes = await db.query(
-        `SELECT total_questions FROM surveys WHERE id = $1 LIMIT 1`,
-        [surveyId]
-      );
-      
-      if (!surveyRes.rows[0]) {
-        throw new Error('Survey not found');
-      }
-      
-      const totalQuestions = surveyRes.rows[0].total_questions || 25;
-      
-      // Initialize statistics counter
-      const statistics: { [questionNumber: number]: { [key: number]: number } } = {};
-      
-      // Initialize all questions and answer values to 0
-      for (let questionNum = 1; questionNum <= totalQuestions; questionNum++) {
-        statistics[questionNum] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-      }
-      
-      // Parse each response and count statistics
-      responses.forEach(response => {
-        if (response.length !== totalQuestions) {
-          console.warn(`Response length mismatch: expected ${totalQuestions}, got ${response.length}`);
-          return;
-        }
-        
-        // Parse each character as an answer (1-5)
-        for (let i = 0; i < response.length; i++) {
-          const answerValue = parseInt(response[i]);
-          if (answerValue >= 1 && answerValue <= 5) {
-            statistics[i + 1][answerValue]++;
-          } else {
-            console.warn(`Invalid answer value: ${answerValue} at position ${i + 1}`);
-          }
-        }
-      });
-      
-      // Clear existing statistics for this survey
-      await db.query(
-        `DELETE FROM survey_response_statistics WHERE survey_id = $1`,
-        [surveyId]
-      );
-      
-      // Insert new statistics
-      const insertPromises = [];
-      for (let questionNum = 1; questionNum <= totalQuestions; questionNum++) {
-        for (let answerValue = 1; answerValue <= 5; answerValue++) {
-          const count = statistics[questionNum][answerValue];
-          if (count > 0) { // Only insert non-zero counts to save space
-            insertPromises.push(
-              db.query(
-                `INSERT INTO survey_response_statistics (id, survey_id, question_number, answer_value, count, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
-                [
-                  crypto.randomUUID(),
-                  surveyId,
-                  questionNum,
-                  answerValue,
-                  count
-                ]
-              )
-            );
-          }
-        }
-      }
-      
-      await Promise.all(insertPromises);
-      
-      console.log(`✅ Generated statistics for survey ${surveyId}: ${responses.length} responses parsed`);
-    } catch (error: any) {
-      throw new Error(`Failed to generate response statistics: ${error.message}`);
-    }
-  }
-
-  /**
-   * Process and decrypt all survey responses from blockchain
-   * @param {string} surveyId - Survey ID
-   * @returns {Promise<{processedResponses: number, responses: Array}>} Processing results
-   */
-  async processResponsesFromBlockchain(surveyId: string) {
-    try {
-      // Get survey from database to access shortId
-      const surveyRes = await db.query(`SELECT id, short_id FROM surveys WHERE id = $1 LIMIT 1`, [surveyId]);
-      const survey = surveyRes.rows[0] ? { id: surveyRes.rows[0].id, shortId: surveyRes.rows[0].short_id } : null;
-
-      if (!survey) {
-        throw new Error('Survey not found');
-      }
-
-      // Get survey from blockchain using shortId
-      const blockchainSurvey = await this.blockchainService?.getSurvey(survey.shortId);
-      
-      if (!blockchainSurvey?.data?.encryptedAnswers || blockchainSurvey.data.encryptedAnswers.length === 0) {
-        throw new Error('No encrypted responses found on blockchain');
-      }
-
-      // Convert encrypted answers to ArrayBuffer format
-      const encryptedAnswers = blockchainSurvey.data.encryptedAnswers.map((answer: number[]) => 
-        new Uint8Array(answer).buffer
-      );
-
-      // Decrypt all responses
-      const decryptedAnswers = await this.cryptoService.decryptAllResponses(surveyId, encryptedAnswers);
-
-      // Store decrypted responses in database and parse statistics
-      const responses = await Promise.all(
-        decryptedAnswers.map(async (answer, index) => {
-          const commitment = new Uint8Array(blockchainSurvey!.data.commitments[index]);
-          const commitmentHash = Buffer.from(commitment).toString('hex');
-
-          await db.query(
-            `INSERT INTO survey_responses (id, survey_id, encrypted_answer, decrypted_answer, commitment_hash, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
-            [
-              crypto.randomUUID(),
-              surveyId,
-              Buffer.from(blockchainSurvey!.data.encryptedAnswers[index]).toString('base64'),
-              answer,
-              commitmentHash,
-            ]
-          );
-          return { decryptedAnswer: answer, commitmentHash } as any;
-        })
-      );
-
-      // Parse responses and generate statistics
-      await this.generateResponseStatistics(surveyId, decryptedAnswers);
-
-      // Update survey response count
-      await db.query(`UPDATE surveys SET total_responses = $2, updated_at = NOW() WHERE id = $1`, [surveyId, responses.length]);
-
-      // Invalidate caches
-      await Promise.all([
-        redis.del(SurveyService.SURVEY_LIST_CACHE_KEY),
-        redis.del(`${SurveyService.SURVEY_CACHE_PREFIX}${surveyId}`)
-      ]);
-
-      return {
-        processedResponses: responses.length,
-        responses: responses
-      };
-    } catch (error: any) {
-      throw new Error(`Failed to process responses from blockchain: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get decrypted survey results with question-by-question statistics
-   * @param {string} surveyId - Survey ID
-   * @returns {Promise<Object>} Survey results with parsed statistics
-   */
-  async getSurveyResults(surveyId: string) {
-    try {
-      const surveyRes = await db.query(
-        `SELECT id, short_id, title, total_responses, is_published, published_at, merkle_root, template_id, total_questions
-         FROM surveys WHERE id = $1 LIMIT 1`,
-        [surveyId]
-      );
-      
-      const survey = surveyRes.rows[0];
-      if (!survey) {
-        throw new Error('Survey not found');
-      }
-
-      // Allow admin to view results even if not published
-      // if (!survey.is_published) {
-      //   throw new Error('Survey is not yet published');
-      // }
-
-      // Get statistics from the statistics table
-      const statsRes = await db.query(
-        `SELECT question_number, answer_value, count 
-         FROM survey_response_statistics 
-         WHERE survey_id = $1 
-         ORDER BY question_number, answer_value`,
-        [surveyId]
-      );
-
-      // Build question-by-question statistics
-      const questionStatistics: { [questionNumber: number]: { [key: number]: number } } = {};
-      const totalQuestions = survey.total_questions || 25;
-
-      // Initialize all questions
-      for (let q = 1; q <= totalQuestions; q++) {
-        questionStatistics[q] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-      }
-
-      // Populate statistics from database
-      statsRes.rows.forEach((row: any) => {
-        questionStatistics[row.question_number][row.answer_value] = row.count;
-      });
-
-      // Calculate overall statistics
-      const overallStats = {
-        averageScore: 0,
-        totalResponses: survey.total_responses,
-        scoreDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } as { [key: number]: number }
-      };
-
-      // Calculate average score and overall distribution
-      let totalScore = 0;
-      let totalAnswers = 0;
-      
-      for (let q = 1; q <= totalQuestions; q++) {
-        for (let answer = 1; answer <= 5; answer++) {
-          const count = questionStatistics[q][answer];
-          overallStats.scoreDistribution[answer] += count;
-          totalScore += (answer * count);
-          totalAnswers += count;
-        }
-      }
-      
-      if (totalAnswers > 0) {
-        overallStats.averageScore = totalScore / totalAnswers;
-      }
-
-      return {
-        surveyId: survey.id,
-        shortId: survey.short_id,
-        title: survey.title,
-        templateId: survey.template_id,
-        totalQuestions: survey.total_questions,
-        totalResponses: survey.total_responses,
-        isPublished: survey.is_published,
-        publishedAt: survey.published_at,
-        merkleRoot: survey.merkle_root,
-        questionStatistics: questionStatistics,
-        overallStatistics: overallStats,
-        // Legacy format for backward compatibility
-        answerDistribution: questionStatistics
-      };
-    } catch (error: any) {
-      throw new Error(`Failed to get survey results: ${error.message}`);
-    }
-  }
-
-  /**
-   * Publish survey results with Merkle proof
-   * @param {string} surveyId - Survey ID to publish
-   * @returns {Promise<Object>} Published survey data
-   */
-  async publishSurveyWithMerkleProof(surveyId: string) {
-    try {
-      // Get survey from database to access shortId
-      const surveyRes2 = await db.query(`SELECT id, short_id FROM surveys WHERE id = $1 LIMIT 1`, [surveyId]);
-      const survey = surveyRes2.rows[0] ? { id: surveyRes2.rows[0].id, shortId: surveyRes2.rows[0].short_id } : null;
-
-      if (!survey) {
-        throw new Error('Survey not found');
-      }
-
-      // Get all commitments from database
-      const respRes = await db.query(
-        `SELECT commitment_hash FROM survey_responses WHERE survey_id = $1`,
-        [surveyId]
-      );
-      const responses = respRes.rows.map((r: any) => ({ commitmentHash: r.commitment_hash }));
-
-      if (responses.length === 0) {
-        throw new Error('No responses found to publish');
-      }
-
-      const commitments = responses.map(r => Buffer.from(r.commitmentHash, 'hex'));
-
-      // Create Merkle root
-      const merkleRoot = await this.cryptoService.createMerkleRoot(commitments);
-      const merkleRootHex = Buffer.from(merkleRoot).toString('hex');
-
-      if (this.fallbackMode) {
-        console.log('📋 Publishing survey in fallback mode - blockchain operations skipped');
-        
-        // Update database only
-        const update = await db.query(
-          `UPDATE surveys SET is_published = true, published_at = NOW(), merkle_root = $2, updated_at = NOW()
-           WHERE id = $1 RETURNING id, is_published, published_at, merkle_root, total_responses`,
-          [surveyId, merkleRootHex]
-        );
-        const publishedSurvey = update.rows[0];
-
-        // Invalidate caches after successful publish
-        await Promise.all([
-          redis.del(SurveyService.SURVEY_LIST_CACHE_KEY),
-          redis.del(`${SurveyService.SURVEY_CACHE_PREFIX}${surveyId}`)
-        ]);
-
-        return {
-          surveyId: publishedSurvey.id,
-          isPublished: publishedSurvey.is_published,
-          publishedAt: publishedSurvey.published_at,
-          merkleRoot: publishedSurvey.merkle_root,
-          totalResponses: Number(publishedSurvey.total_responses || 0),
-        };
-      }
-
-      // Publish survey on blockchain using shortId (not UUID)
-      await this.blockchainService?.publishResults(survey.shortId);
-
-      // Update database
-      const update = await db.query(
-        `UPDATE surveys SET is_published = true, published_at = NOW(), merkle_root = $2, updated_at = NOW()
-         WHERE id = $1 RETURNING id, is_published, published_at, merkle_root, total_responses`,
-        [surveyId, merkleRootHex]
-      );
-      const publishedSurvey = update.rows[0];
-
-      // Invalidate caches after successful publish
-      await Promise.all([
-        redis.del(SurveyService.SURVEY_LIST_CACHE_KEY),
-        redis.del(`${SurveyService.SURVEY_CACHE_PREFIX}${surveyId}`)
-      ]);
-
-      return {
-        surveyId: publishedSurvey.id,
-        isPublished: publishedSurvey.is_published,
-        publishedAt: publishedSurvey.published_at,
-        merkleRoot: publishedSurvey.merkle_root,
-        totalResponses: Number(publishedSurvey.total_responses || 0),
-      };
-    } catch (error: any) {
-      throw new Error(`Failed to publish survey: ${error.message}`);
-    }
-  }
 } 

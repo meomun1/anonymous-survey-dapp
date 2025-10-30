@@ -6,17 +6,17 @@ const cryptoController = new CryptoController();
 
 /**
  * @swagger
- * /crypto/blind-sign/{surveyId}:
+ * /crypto/campaigns/{campaignId}/blind-sign:
  *   post:
- *     summary: Generate blind signature for student's blinded message
+ *     summary: Generate blind signature for student's blinded message (campaign)
  *     tags: [Cryptography]
  *     parameters:
  *       - in: path
- *         name: surveyId
+ *         name: campaignId
  *         required: true
  *         schema:
  *           type: string
- *         description: Survey ID
+ *         description: Campaign ID
  *     requestBody:
  *       required: true
  *       content:
@@ -30,25 +30,11 @@ const cryptoController = new CryptoController();
  *                 type: string
  *                 format: base64
  *                 description: Base64 encoded blinded message from client
- *                 example: "eyJibGluZGVkTWVzc2FnZSI6ImFiY2RlZmcifQ=="
  *     responses:
  *       200:
  *         description: Blind signature generated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 blindSignature:
- *                   type: string
- *                   format: base64
- *                   description: Base64 encoded blind signature
- *       400:
- *         description: Invalid request parameters
- *       500:
- *         description: Cryptographic operation failed
  */
-router.post('/blind-sign/:surveyId', cryptoController.generateBlindSignature.bind(cryptoController));
+router.post('/campaigns/:campaignId/blind-sign', cryptoController.blindSignCampaign.bind(cryptoController));
 
 /**
  * @swagger
@@ -90,15 +76,18 @@ router.post('/blind-sign/:surveyId', cryptoController.generateBlindSignature.bin
  *         description: Invalid request parameters
  */
 router.post('/verify-commitment', cryptoController.verifyCommitment.bind(cryptoController));
-
 /**
  * @swagger
- * /crypto/decrypt-response:
+ * /crypto/campaigns/{campaignId}/decrypt:
  *   post:
- *     summary: Decrypt individual response
+ *     summary: Decrypt an encrypted answer using campaign keys
  *     tags: [Cryptography]
- *     security:
- *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: campaignId
+ *         required: true
+ *         schema:
+ *           type: string
  *     requestBody:
  *       required: true
  *       content:
@@ -106,67 +95,34 @@ router.post('/verify-commitment', cryptoController.verifyCommitment.bind(cryptoC
  *           schema:
  *             type: object
  *             required:
- *               - surveyId
  *               - encryptedAnswer
  *             properties:
- *               surveyId:
- *                 type: string
- *                 description: Survey ID
  *               encryptedAnswer:
  *                 type: string
  *                 format: base64
- *                 description: Base64 encoded encrypted answer
  *     responses:
  *       200:
- *         description: Response decrypted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 decryptedAnswer:
- *                   type: string
- *                   description: Decrypted answer text
- *       401:
- *         description: Unauthorized - JWT token required
- *       500:
- *         description: Decryption failed
+ *         description: Decryption result
  */
-router.post('/decrypt-response', cryptoController.decryptResponse.bind(cryptoController));
+router.post('/campaigns/:campaignId/decrypt', cryptoController.decryptForCampaign.bind(cryptoController));
 
 /**
  * @swagger
- * /crypto/public-keys/{surveyId}:
+ * /crypto/campaigns/{campaignId}/public-keys:
  *   get:
- *     summary: Get survey public keys for cryptographic operations
+ *     summary: Get campaign public keys for cryptographic operations
  *     tags: [Cryptography]
  *     parameters:
  *       - in: path
- *         name: surveyId
+ *         name: campaignId
  *         required: true
  *         schema:
  *           type: string
- *         description: Survey ID
  *     responses:
  *       200:
- *         description: Survey public keys
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 blindSignaturePublicKey:
- *                   type: string
- *                   format: base64
- *                   description: RSA public key for blind signatures
- *                 encryptionPublicKey:
- *                   type: string
- *                   format: base64
- *                   description: RSA public key for encryption
- *       404:
- *         description: Survey not found
+ *         description: Public keys
  */
-router.get('/public-keys/:surveyId', cryptoController.getSurveyPublicKeys.bind(cryptoController));
+router.get('/campaigns/:campaignId/public-keys', cryptoController.getCampaignPublicKeys.bind(cryptoController));
 
 /**
  * @swagger

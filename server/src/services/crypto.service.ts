@@ -1,59 +1,106 @@
 import db from '../config/database';
 import { RSABSSA } from '@cloudflare/blindrsa-ts';
-import { webcrypto } from 'crypto';
+import { webcrypto, createHash } from 'crypto';
 
 /**
  * Service for cryptographic operations (blind signatures, encryption, Merkle trees)
  */
 export class CryptoService {
-  
   /**
-   * Generate blind signature for a blinded message
-   * @param {string} surveyId - Survey ID to get private key for
-   * @param {Uint8Array} blindedMessage - Blinded message from client
-   * @returns {Promise<Uint8Array>} Blind signature
+   * Get campaign public keys (blind signature and encryption)
    */
-  async generateBlindSignature(surveyId: string, blindedMessage: Uint8Array): Promise<Uint8Array> {
+  async getCampaignPublicKeys(campaignId: string) {
     try {
-      // Get survey private keys from database
       const result = await db.query(
-        `SELECT blind_signature_private_key, encryption_private_key
-         FROM survey_private_keys WHERE survey_id = $1 LIMIT 1`,
-        [surveyId]
+        `SELECT blind_signature_public_key, encryption_public_key
+         FROM survey_campaigns WHERE id = $1 LIMIT 1`,
+        [campaignId]
       );
-      const surveyPrivateKey = result.rows[0]
+      const campaign = result.rows[0]
         ? {
-            blindSignaturePrivateKey: result.rows[0].blind_signature_private_key,
-            encryptionPrivateKey: result.rows[0].encryption_private_key,
+            blindSignaturePublicKey: result.rows[0].blind_signature_public_key,
+            encryptionPublicKey: result.rows[0].encryption_public_key,
           }
         : null;
 
-      if (!surveyPrivateKey) {
-        throw new Error('Survey private keys not found');
+      if (!campaign) {
+        throw new Error('Campaign not found');
       }
 
-      // Import the private key using WebCrypto (the RSABSSA library expects CryptoKey)
-      const blindSignaturePrivateKeyBuffer = Buffer.from(surveyPrivateKey.blindSignaturePrivateKey, 'base64');
+      return {
+        blindSignaturePublicKey: Buffer.from(campaign.blindSignaturePublicKey, 'base64'),
+        encryptionPublicKey: Buffer.from(campaign.encryptionPublicKey, 'base64')
+      };
+    } catch (error: any) {
+      throw new Error(`Failed to get campaign public keys: ${error.message}`);
+    }
+  }
+
+  /**
+   * Blind sign using campaign private key
+   */
+  async blindSignCampaign(campaignId: string, blindedMessage: Uint8Array): Promise<Uint8Array> {
+    try {
+      const result = await db.query(
+        `SELECT blind_signature_private_key
+         FROM survey_campaigns WHERE id = $1 LIMIT 1`,
+        [campaignId]
+      );
+
+      const row = result.rows[0];
+      if (!row) {
+        throw new Error('Campaign private key not found');
+      }
+
+      const blindSignaturePrivateKeyBuffer = Buffer.from(row.blind_signature_private_key, 'base64');
       const blindSignaturePrivateKey = await webcrypto.subtle.importKey(
         'pkcs8',
         blindSignaturePrivateKeyBuffer,
-        {
-          name: 'RSA-PSS',
-          hash: 'SHA-384'
-        },
+        { name: 'RSA-PSS', hash: 'SHA-384' },
         true,
         ['sign']
       );
 
-      // Initialize blind signature suite
       const suite = RSABSSA.SHA384.PSS.Randomized();
-
-      // Generate blind signature using the imported CryptoKey
-      const blindSignature = await suite.blindSign(blindSignaturePrivateKey, blindedMessage);
-
-      return blindSignature;
+      return await suite.blindSign(blindSignaturePrivateKey, blindedMessage);
     } catch (error: any) {
-      throw new Error(`Failed to generate blind signature: ${error.message}`);
+      throw new Error(`Failed to blind sign (campaign): ${error.message}`);
+    }
+  }
+
+  /**
+   * Decrypt payload using campaign encryption private key
+   */
+  async decryptForCampaign(campaignId: string, encryptedAnswer: ArrayBuffer): Promise<string> {
+    try {
+      const result = await db.query(
+        `SELECT encryption_private_key
+         FROM survey_campaigns WHERE id = $1 LIMIT 1`,
+        [campaignId]
+      );
+      const row = result.rows[0];
+      if (!row) {
+        throw new Error('Campaign private key not found');
+      }
+
+      const encryptionPrivateKeyBuffer = Buffer.from(row.encryption_private_key, 'base64');
+      const encryptionPrivateKey = await webcrypto.subtle.importKey(
+        'pkcs8',
+        encryptionPrivateKeyBuffer,
+        { name: 'RSA-OAEP', hash: 'SHA-256' },
+        false,
+        ['decrypt']
+      );
+
+      const decryptedBuffer = await webcrypto.subtle.decrypt(
+        { name: 'RSA-OAEP' },
+        encryptionPrivateKey,
+        encryptedAnswer
+      );
+
+      return new TextDecoder().decode(decryptedBuffer);
+    } catch (error: any) {
+      throw new Error(`Failed to decrypt (campaign): ${error.message}`);
     }
   }
 
@@ -63,54 +110,6 @@ export class CryptoService {
    * @param {ArrayBuffer} encryptedAnswer - Encrypted answer from blockchain
    * @returns {Promise<string>} Decrypted answer text
    */
-  async decryptResponse(surveyId: string, encryptedAnswer: ArrayBuffer): Promise<string> {
-    try {
-      // Get survey private keys from database
-      const result = await db.query(
-        `SELECT encryption_private_key
-         FROM survey_private_keys WHERE survey_id = $1 LIMIT 1`,
-        [surveyId]
-      );
-      const surveyPrivateKey = result.rows[0]
-        ? {
-            encryptionPrivateKey: result.rows[0].encryption_private_key,
-          }
-        : null;
-
-      if (!surveyPrivateKey) {
-        throw new Error('Survey private keys not found');
-      }
-
-      // Import encryption private key
-      const encryptionPrivateKeyBuffer = Buffer.from(surveyPrivateKey.encryptionPrivateKey, 'base64');
-      const encryptionPrivateKey = await webcrypto.subtle.importKey(
-        'pkcs8',
-        encryptionPrivateKeyBuffer,
-        {
-          name: 'RSA-OAEP',
-          hash: 'SHA-256'
-        },
-        false,
-        ['decrypt']
-      );
-
-      // Decrypt the response
-      const decryptedBuffer = await webcrypto.subtle.decrypt(
-        {
-          name: 'RSA-OAEP'
-        },
-        encryptionPrivateKey,
-        encryptedAnswer
-      );
-
-      // Convert decrypted buffer back to string
-      const decryptedAnswer = new TextDecoder().decode(decryptedBuffer);
-      
-      return decryptedAnswer;
-    } catch (error: any) {
-      throw new Error(`Failed to decrypt response: ${error.message}`);
-    }
-  }
 
   /**
    * Verify that a commitment matches the given answer
@@ -148,31 +147,72 @@ export class CryptoService {
    * @param {string} surveyId - Survey ID
    * @returns {Promise<{blindSignaturePublicKey: Buffer, encryptionPublicKey: Buffer}>} Public keys
    */
-  async getSurveyPublicKeys(surveyId: string) {
-    try {
-      const result = await db.query(
-        `SELECT blind_signature_public_key, encryption_public_key
-         FROM surveys WHERE id = $1 LIMIT 1`,
-        [surveyId]
-      );
-      const survey = result.rows[0]
-        ? {
-            blindSignaturePublicKey: result.rows[0].blind_signature_public_key,
-            encryptionPublicKey: result.rows[0].encryption_public_key,
-          }
-        : null;
 
-      if (!survey) {
-        throw new Error('Survey not found');
-      }
+  // ============================================================================
+  // MERKLE TREE (moved from analytics)
+  // ============================================================================
 
-      return {
-        blindSignaturePublicKey: Buffer.from(survey.blindSignaturePublicKey, 'base64'),
-        encryptionPublicKey: Buffer.from(survey.encryptionPublicKey, 'base64')
-      };
-    } catch (error: any) {
-      throw new Error(`Failed to get survey public keys: ${error.message}`);
+  /**
+   * Calculate Merkle root from hex commitments
+   */
+  async calculateMerkleRoot(commitments: string[]): Promise<string> {
+    if (commitments.length === 0) {
+      throw new Error('Cannot calculate Merkle root from empty commitments');
     }
+
+    const leaves = commitments.map(c => Buffer.from(c, 'hex'));
+    let currentLevel: any[] = leaves as any[];
+    while (currentLevel.length > 1) {
+      const nextLevel: any[] = [];
+      for (let i = 0; i < currentLevel.length; i += 2) {
+        const left = currentLevel[i];
+        const right = currentLevel[i + 1] || left;
+        const combined = Buffer.concat([left, right]);
+        const hash = createHash('sha256').update(combined).digest();
+        nextLevel.push(hash);
+      }
+      currentLevel = nextLevel;
+    }
+    return currentLevel[0].toString('hex');
+  }
+
+  async calculateFinalMerkleRoot(campaignRoots: string[]): Promise<string> {
+    return this.calculateMerkleRoot(campaignRoots);
+  }
+
+  async generateMerkleProof(commitments: string[], targetCommitment: string): Promise<string[]> {
+    const targetIndex = commitments.indexOf(targetCommitment);
+    if (targetIndex === -1) throw new Error('Target commitment not found');
+
+    const leaves = commitments.map(c => Buffer.from(c, 'hex'));
+    const proof: string[] = [];
+    let currentLevel: any[] = leaves as any[];
+    let currentIndex = targetIndex;
+    while (currentLevel.length > 1) {
+      const nextLevel: any[] = [];
+      for (let i = 0; i < currentLevel.length; i += 2) {
+        const left = currentLevel[i];
+        const right = currentLevel[i + 1] || left;
+        const combined = Buffer.concat([left, right]);
+        const hash = createHash('sha256').update(combined).digest();
+        nextLevel.push(hash);
+        if (i === currentIndex) proof.push(right.toString('hex'));
+        else if (i + 1 === currentIndex) proof.push(left.toString('hex'));
+      }
+      currentLevel = nextLevel;
+      currentIndex = Math.floor(currentIndex / 2);
+    }
+    return proof;
+  }
+
+  async verifyMerkleProof(commitment: string, proof: string[], root: string): Promise<boolean> {
+    let current: any = Buffer.from(commitment, 'hex') as any;
+    for (const p of proof) {
+      const sibling: any = Buffer.from(p, 'hex') as any;
+      const combined: any = Buffer.concat([current, sibling]) as any;
+      current = createHash('sha256').update(combined).digest();
+    }
+    return current.toString('hex') === root;
   }
 
   /**
@@ -220,20 +260,6 @@ export class CryptoService {
    * @param {ArrayBuffer[]} encryptedAnswers - Array of encrypted answers
    * @returns {Promise<string[]>} Array of decrypted answers
    */
-  async decryptAllResponses(surveyId: string, encryptedAnswers: ArrayBuffer[]): Promise<string[]> {
-    try {
-      const decryptedAnswers: string[] = [];
-      
-      for (const encryptedAnswer of encryptedAnswers) {
-        const decrypted = await this.decryptResponse(surveyId, encryptedAnswer);
-        decryptedAnswers.push(decrypted);
-      }
-      
-      return decryptedAnswers;
-    } catch (error: any) {
-      throw new Error(`Failed to decrypt all responses: ${error.message}`);
-    }
-  }
 
   /**
    * Generate commitment hash for an answer
@@ -255,7 +281,7 @@ export class CryptoService {
    * @param {Uint8Array[]} commitments - Array of commitments
    * @returns {Promise<Uint8Array>} Merkle root hash
    */
-  async bulkVerifyCommitments(commitments: Uint8Array[]): Promise<Uint8Array> {
+  async buildMerkleRootFromCommitments(commitments: Uint8Array[]): Promise<Uint8Array> {
     try {
       if (commitments.length === 0) {
         throw new Error('No commitments provided');
@@ -292,7 +318,14 @@ export class CryptoService {
 
       return currentLevel[0];
     } catch (error: any) {
-      throw new Error(`Failed to generate Merkle root: ${error.message}`);
+      throw new Error(`Failed to build Merkle root: ${error.message}`);
     }
+  }
+
+  /**
+   * Deprecated alias: use buildMerkleRootFromCommitments
+   */
+  async bulkVerifyCommitments(commitments: Uint8Array[]): Promise<Uint8Array> {
+    return this.buildMerkleRootFromCommitments(commitments);
   }
 } 
