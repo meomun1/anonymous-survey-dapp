@@ -145,21 +145,98 @@ export class CampaignController {
     }
   }
 
+  /**
+   * Publish responses Merkle root to blockchain (Tree #1)
+   * NEW: Replaces old publishCampaign
+   */
+  async publishCampaignResponses(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const result = await campaignService.publishCampaignResponses(id);
+      res.json({
+        success: true,
+        message: 'Responses Merkle root published successfully',
+        merkleRoot: result.merkleRoot,
+        totalResponses: result.totalResponses
+      });
+    } catch (error) {
+      console.error('Failed to publish campaign responses:', error);
+      if (error instanceof Error && error.message.includes('Campaign not found')) {
+        return res.status(404).json({ error: 'Campaign not found' });
+      }
+      if (error instanceof Error && error.message.includes('No responses found')) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: 'Failed to publish campaign responses' });
+    }
+  }
+
+  /**
+   * Publish claimed receipts Merkle root to blockchain (Tree #2)
+   * NEW: Can be called multiple times for batched updates
+   */
+  async publishClaimedReceipts(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const result = await campaignService.publishClaimedReceipts(id);
+      res.json({
+        success: true,
+        message: 'Claimed receipts Merkle root published successfully',
+        merkleRoot: result.merkleRoot,
+        totalClaimed: result.totalClaimed
+      });
+    } catch (error) {
+      console.error('Failed to publish claimed receipts:', error);
+      if (error instanceof Error && error.message.includes('Campaign not found')) {
+        return res.status(404).json({ error: 'Campaign not found' });
+      }
+      if (error instanceof Error && error.message.includes('No claimed receipts found')) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: 'Failed to publish claimed receipts' });
+    }
+  }
+
+  /**
+   * Close campaign on blockchain (prevents further updates)
+   * NEW
+   */
+  async closeCampaignOnBlockchain(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const signature = await campaignService.closeCampaignOnBlockchain(id);
+      res.json({
+        success: true,
+        message: 'Campaign closed on blockchain successfully',
+        signature
+      });
+    } catch (error) {
+      console.error('Failed to close campaign on blockchain:', error);
+      if (error instanceof Error && error.message.includes('Blockchain service not available')) {
+        return res.status(503).json({ error: 'Blockchain service not available' });
+      }
+      res.status(500).json({ error: 'Failed to close campaign on blockchain' });
+    }
+  }
+
+  /**
+   * Publish campaign - change status to published
+   * This should be called after Merkle roots are published to blockchain
+   */
   async publishCampaign(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const { merkleRoot } = req.body;
-      
-      if (!merkleRoot) {
-        return res.status(400).json({ error: 'Merkle root is required' });
-      }
 
-      const campaign = await campaignService.publishCampaign(id, merkleRoot);
+      // Simply update status to published
+      const campaign = await campaignService.updateCampaign(id, { status: 'published' });
       res.json(campaign);
     } catch (error) {
       console.error('Failed to publish campaign:', error);
-      if (error instanceof Error && error.message.includes('not found or not in closed status')) {
-        return res.status(400).json({ error: error.message });
+      if (error instanceof Error && error.message === 'Campaign not found') {
+        return res.status(404).json({ error: 'Campaign not found' });
       }
       res.status(500).json({ error: 'Failed to publish campaign' });
     }

@@ -210,30 +210,126 @@ router.post('/:id/launch', campaignController.launchCampaign);
 
 /**
  * @swagger
- * /campaigns/{id}/publish:
+ * /campaigns/{id}/publish-responses:
  *   post:
- *     summary: Publish campaign results
- *     tags: [Campaigns]
+ *     summary: Publish responses Merkle root to blockchain (Tree #1)
+ *     description: Calculates Merkle root from all response commitments and publishes to blockchain
+ *     tags: [Campaigns, Blockchain]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               merkleRoot:
- *                 type: string
+ *         description: Campaign ID
  *     responses:
  *       200:
- *         description: Published
+ *         description: Responses Merkle root published successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 merkleRoot:
+ *                   type: string
+ *                 totalResponses:
+ *                   type: number
+ *       400:
+ *         description: No responses found
+ *       404:
+ *         description: Campaign not found
+ *       500:
+ *         description: Server error
  */
-router.post('/:id/publish', campaignController.publishCampaign);
+router.post('/:id/publish-responses', verifyToken, requireAdmin, campaignController.publishCampaignResponses);
+
+/**
+ * @swagger
+ * /campaigns/{id}/publish-claims:
+ *   post:
+ *     summary: Publish claimed receipts Merkle root to blockchain (Tree #2)
+ *     description: Calculates Merkle root from all claimed receipts and publishes to blockchain. Can be called multiple times for batched updates.
+ *     tags: [Campaigns, Blockchain]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Campaign ID
+ *     responses:
+ *       200:
+ *         description: Claimed receipts Merkle root published successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 merkleRoot:
+ *                   type: string
+ *                 totalClaimed:
+ *                   type: number
+ *       400:
+ *         description: No claimed receipts found
+ *       404:
+ *         description: Campaign not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/:id/publish-claims', verifyToken, requireAdmin, campaignController.publishClaimedReceipts);
+
+/**
+ * @swagger
+ * /campaigns/{id}/close-blockchain:
+ *   post:
+ *     summary: Close campaign on blockchain (prevents further updates)
+ *     description: Marks the campaign as closed on blockchain, preventing any further Merkle root updates
+ *     tags: [Campaigns, Blockchain]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Campaign ID
+ *     responses:
+ *       200:
+ *         description: Campaign closed on blockchain successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 signature:
+ *                   type: string
+ *       503:
+ *         description: Blockchain service not available
+ *       500:
+ *         description: Server error
+ */
+router.post('/:id/close-blockchain', verifyToken, requireAdmin, campaignController.closeCampaignOnBlockchain);
+
+/**
+ * @swagger
+ * /campaigns/{id}/publish:
+ *   post:
+ *     summary: Publish campaign results
+ *     description: Change campaign status to published (after Merkle roots are published)
+ *     tags: [Campaigns]
+ */
+router.post('/:id/publish', verifyToken, requireAdmin, campaignController.publishCampaign);
 
 // ============================================================================
 // CAMPAIGN SURVEY MANAGEMENT

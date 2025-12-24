@@ -85,158 +85,13 @@ export class ResponseService {
     return result.rows[0] || null;
   }
 
-  /**
-   * Decrypt all survey responses from blockchain and store in database
-   * @param {string} surveyId - Survey ID
-   * @returns {Promise<{processed: number}>} Number of responses processed
-   */
-  /** Ingest encrypted responses from blockchain for campaign */
-  async ingestFromBlockchain(campaignId: string) {
-    const blockchain = new BlockchainService();
-    const data = await blockchain.getCampaign(campaignId);
-    if (!data?.encryptedResponses || data.encryptedResponses.length === 0) return { inserted: 0 };
-    let inserted = 0;
-    for (let i = 0; i < data.encryptedResponses.length; i++) {
-      const enc = data.encryptedResponses[i];
-      const commitmentArr = data.commitments[i];
-      const commitmentHex = Buffer.from(new Uint8Array(commitmentArr)).toString('hex');
-      const exists = await db.query(`SELECT 1 FROM survey_responses WHERE commitment = $1 LIMIT 1`, [commitmentHex]);
-      if (exists.rowCount && exists.rowCount > 0) continue;
-      await db.query(
-        `INSERT INTO survey_responses (id, campaign_id, encrypted_data, commitment, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, NOW(), NOW())`,
-        [crypto.randomUUID(), campaignId, Buffer.from(enc).toString('base64'), commitmentHex]
-      );
-      inserted++;
-    }
-    return { inserted };
-  }
-
-  /** Decrypt all campaign responses and populate decrypted_responses + parsed_responses */
-  async decryptCampaignResponses(campaignId: string) {
-    const toDecrypt = await db.query(
-      `SELECT sr.id, sr.encrypted_data
-       FROM survey_responses sr
-       LEFT JOIN decrypted_responses dr ON dr.response_id = sr.id
-       WHERE sr.campaign_id = $1 AND dr.id IS NULL`,
-      [campaignId]
-    );
-    let processed = 0;
-    for (const row of toDecrypt.rows) {
-      try {
-        const encryptedBuffer = Buffer.from(row.encrypted_data, 'base64');
-        const ab = encryptedBuffer.buffer.slice(
-          encryptedBuffer.byteOffset,
-          encryptedBuffer.byteOffset + encryptedBuffer.byteLength
-        );
-        const decrypted = await cryptoService.decryptForCampaign(campaignId, ab);
-        const decId = crypto.randomUUID();
-        await db.query(
-          `INSERT INTO decrypted_responses (id, response_id, answer_string, survey_id, course_code, teacher_id, created_at, updated_at)
-           VALUES ($1, $2, $3, '', '', '', NOW(), NOW())`,
-          [decId, row.id, decrypted]
-        );
-        const parsed = this.parseAnswerString(decrypted);
-        await db.query(
-          `UPDATE decrypted_responses SET survey_id = $2, course_code = $3, teacher_id = $4, updated_at = NOW() WHERE id = $1`,
-          [decId, parsed.surveyId, parsed.courseCode, parsed.teacherId]
-        );
-        await db.query(
-          `INSERT INTO parsed_responses (id, decrypted_response_id, survey_id, course_code, teacher_id, answers, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
-          [crypto.randomUUID(), decId, parsed.surveyId, parsed.courseCode, parsed.teacherId, parsed.answers]
-        );
-        processed++;
-      } catch (e) {
-        console.error('Failed to decrypt/parse response:', e);
-      }
-    }
-    return { processed };
-  }
-
-  /**
-   * Submit student responses to blockchain using school's private key
-   */
-  async submitStudentResponses(token: string, responses: Array<{
-    surveyId: string;
-    encryptedData: string;
-    commitment: string;
-  }>) {
-    // First, validate the token and get campaign info
-    const tokenResult = await db.query(
-      'SELECT * FROM survey_tokens WHERE token = $1',
-      [token]
-    );
-
-    if (tokenResult.rows.length === 0) {
-      throw new Error('Invalid token');
-    }
-
-    const tokenData = tokenResult.rows[0];
-
-    // Check if already submitted to blockchain
-    if (tokenData.blockchain_submitted === true) {
-      throw new Error('Responses already submitted to blockchain');
-    }
-
-    const campaignId = tokenData.campaign_id;
-
-    // Get campaign details
-    const campaignResult = await db.query(
-      'SELECT * FROM survey_campaigns WHERE id = $1',
-      [campaignId]
-    );
-
-    if (campaignResult.rows.length === 0) {
-      throw new Error('Campaign not found');
-    }
-
-    const campaign = campaignResult.rows[0];
-
-    // Validate all responses have required fields
-    for (let i = 0; i < responses.length; i++) {
-      const r = responses[i];
-      if (!r.surveyId) {
-        throw new Error(`Response ${i} is missing surveyId`);
-      }
-      if (!r.commitment) {
-        throw new Error(`Response ${i} (surveyId: ${r.surveyId}) is missing commitment`);
-      }
-      if (!r.encryptedData) {
-        throw new Error(`Response ${i} (surveyId: ${r.surveyId}) is missing encryptedData`);
-      }
-    }
-
-    // Initialize blockchain service
-    const blockchainService = new BlockchainService();
-
-    try {
-      // Submit responses to blockchain
-      const commitments = responses.map(r => Buffer.from(r.commitment, 'hex'));
-      const encryptedResponses = responses.map(r => Buffer.from(r.encryptedData, 'base64'));
-      
-      const transactionHash = await blockchainService.submitBatchResponses(
-        campaignId,
-        commitments,
-        encryptedResponses
-      );
-
-      // DO NOT store in database here! Only blockchain.
-      // This prevents timing correlation that could de-anonymize students.
-      // Responses will be ingested from blockchain later when admin closes campaign.
-
-      // Mark token as completed and blockchain_submitted
-      await db.query(
-        'UPDATE survey_tokens SET is_completed = true, completed_at = NOW(), blockchain_submitted = true WHERE token = $1',
-        [token]
-      );
-
-      return { transactionHash };
-    } catch (error: any) {
-      console.error('Blockchain submission failed:', error);
-      throw new Error(`Failed to submit to blockchain: ${error.message}`);
-    }
-  }
+  // ============================================================================
+  // NOTE: Old blockchain submission methods removed (NEW ARCHITECTURE)
+  // ============================================================================
+  // - Responses are stored in DATABASE only (not on-chain)
+  // - Only Merkle roots are published to blockchain
+  // - submitBatchResponses() below is the CORRECT Phase 3 implementation
+  // ============================================================================
 
   /**
    * Get encrypted responses for a campaign (check if ingested)
@@ -261,5 +116,100 @@ export class ResponseService {
       [campaignId]
     );
     return result.rows;
+  }
+
+  /**
+   * Phase 3: Submit batch responses with blind signature authorization
+   * Processes encrypted responses, validates, stores, and returns receipt signature
+   */
+  async submitBatchResponses(
+    campaignId: string,
+    responses: Array<{ surveyId: string; encryptedAnswer: string; commitment: string }>,
+    ticketCommitment: string,
+    blindedReceipt: string
+  ) {
+    // Verify ticket commitment matches response count
+    const expectedCommitment = tokenService.generateTicketCommitment(responses.length);
+    if (ticketCommitment !== expectedCommitment) {
+      throw new Error('Ticket commitment mismatch');
+    }
+
+    // Process each response
+    const processedResponses = [];
+    for (const response of responses) {
+      const { surveyId, encryptedAnswer, commitment } = response;
+
+      // Check if commitment already exists
+      const existing = await db.query(
+        `SELECT id FROM survey_responses WHERE commitment = $1 LIMIT 1`,
+        [commitment]
+      );
+
+      if (existing.rowCount && existing.rowCount > 0) {
+        throw new Error(`Response with commitment ${commitment} already exists`);
+      }
+
+      // Decrypt and validate response
+      const encryptedBuffer = Buffer.from(encryptedAnswer, 'base64');
+      const ab = encryptedBuffer.buffer.slice(
+        encryptedBuffer.byteOffset,
+        encryptedBuffer.byteOffset + encryptedBuffer.byteLength
+      );
+      const decryptedAnswer = await cryptoService.decryptForCampaign(campaignId, ab);
+
+      // Verify commitment
+      const calculatedCommitment = await cryptoService.generateCommitment(decryptedAnswer);
+      const calculatedHex = Buffer.from(calculatedCommitment).toString('hex');
+      if (calculatedHex !== commitment) {
+        throw new Error(`Commitment verification failed for survey ${surveyId}`);
+      }
+
+      // Parse answer string to extract survey info
+      const parsed = this.parseAnswerString(decryptedAnswer);
+      if (parsed.surveyId !== surveyId) {
+        throw new Error(`Survey ID mismatch: expected ${surveyId}, got ${parsed.surveyId}`);
+      }
+
+      // Store encrypted response
+      const responseId = crypto.randomUUID();
+      await db.query(
+        `INSERT INTO survey_responses (id, campaign_id, encrypted_data, commitment, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+        [responseId, campaignId, encryptedAnswer, commitment]
+      );
+
+      // Store decrypted response
+      const decryptedId = crypto.randomUUID();
+      await db.query(
+        `INSERT INTO decrypted_responses (id, response_id, answer_string, survey_id, course_code, teacher_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+        [decryptedId, responseId, decryptedAnswer, parsed.surveyId, parsed.courseCode, parsed.teacherId]
+      );
+
+      // Store parsed response
+      const parsedId = crypto.randomUUID();
+      await db.query(
+        `INSERT INTO parsed_responses (id, decrypted_response_id, survey_id, course_code, teacher_id, answers, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+        [parsedId, decryptedId, parsed.surveyId, parsed.courseCode, parsed.teacherId, parsed.answers]
+      );
+
+      processedResponses.push({
+        responseId,
+        decryptedId,
+        parsedId,
+        surveyId: parsed.surveyId
+      });
+    }
+
+    // Sign blinded receipt
+    const blindedReceiptBuffer = Buffer.from(blindedReceipt, 'base64');
+    const receiptSignature = await cryptoService.blindSignCampaign(campaignId, blindedReceiptBuffer);
+
+    return {
+      processedCount: processedResponses.length,
+      responses: processedResponses,
+      blindSignature: Buffer.from(receiptSignature).toString('base64')
+    };
   }
 } 

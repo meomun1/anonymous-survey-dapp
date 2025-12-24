@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import { CryptoService } from '../services/crypto.service';
+import { MerkleService } from '../services/merkle.service';
 
 const cryptoService = new CryptoService();
+const merkleService = new MerkleService();
 
 export class CryptoController {
   /**
@@ -155,15 +157,11 @@ export class CryptoController {
         return res.status(400).json({ error: 'Commitments array is required' });
       }
 
-      // Convert hex commitments to Uint8Arrays
-      const commitmentArrays = commitments.map((commitment: string) => 
-        new Uint8Array(Buffer.from(commitment, 'hex'))
-      );
+      // Convert hex commitments to string array for MerkleService
+      const commitmentHexArray = commitments.map((commitment: string) => commitment);
 
-      const merkleRoot = await cryptoService.bulkVerifyCommitments(commitmentArrays);
-      
-      // Convert to hex for transmission
-      const merkleRootHex = Buffer.from(merkleRoot).toString('hex');
+      // Calculate Merkle root using MerkleService
+      const merkleRootHex = await merkleService.calculateMerkleRoot(commitmentHexArray);
 
       res.json({ merkleRoot: merkleRootHex });
     } catch (error: any) {

@@ -1,124 +1,57 @@
 import db from '../config/database';
 import Redis from 'ioredis';
-import { CryptoService } from './crypto.service';
+import { MerkleService } from './merkle.service';
+import { BlockchainService } from './blockchain.service';
 
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
 /**
- * Service for analytics, Merkle tree calculations, and teacher performance verification
+ * Service for analytics and teacher performance verification
+ * Note: Merkle operations moved to MerkleService
  */
 export class AnalyticsService {
   private static readonly ANALYTICS_CACHE_PREFIX = 'analytics:';
   private static readonly CACHE_TTL = 1800; // 30 minutes
-  private cryptoService = new CryptoService();
+  private merkleService = new MerkleService();
+  private blockchainService: BlockchainService | null = null;
 
-  // Merkle operations are delegated to crypto.service
-  async calculateMerkleRoot(commitments: string[]): Promise<string> {
-    return this.cryptoService.calculateMerkleRoot(commitments);
-  }
-
-  async calculateFinalMerkleRoot(campaignRoots: string[]): Promise<string> {
-    return this.cryptoService.calculateFinalMerkleRoot(campaignRoots);
-  }
-
-  async generateMerkleProof(commitments: string[], targetCommitment: string): Promise<string[]> {
-    return this.cryptoService.generateMerkleProof(commitments, targetCommitment);
-  }
-
-  async verifyMerkleProof(commitment: string, proof: string[], root: string): Promise<boolean> {
-    return this.cryptoService.verifyMerkleProof(commitment, proof, root);
-  }
-
-  /**
-   * Calculate Merkle root for all responses in a campaign
-   */
-  async calculateCampaignMerkleRoot(campaignId: string) {
-    // Check if campaign exists
-    const campaign = await db.query(
-      'SELECT id, name FROM survey_campaigns WHERE id = $1',
-      [campaignId]
-    );
-
-    if (campaign.rowCount === 0) {
-      throw new Error('Campaign not found');
+  constructor() {
+    // Initialize blockchain service (may be null in fallback mode)
+    try {
+      this.blockchainService = new BlockchainService();
+    } catch (error) {
+      console.warn('⚠️ Analytics running without blockchain integration');
     }
-
-    // Fetch all response commitments for this campaign
-    // Note: ORDER BY ensures deterministic Merkle root calculation
-    // survey_responses has campaign_id directly, no need to join with surveys
-    const result = await db.query(
-      `SELECT commitment
-       FROM survey_responses
-       WHERE campaign_id = $1 AND commitment IS NOT NULL
-       ORDER BY created_at`,
-      [campaignId]
-    );
-
-    if (result.rowCount === 0) {
-      throw new Error('No responses found for this campaign');
-    }
-
-    const totalCommitments = result.rowCount;
-    console.log(`📊 Calculating Merkle root for ${totalCommitments} commitments in campaign ${campaignId}`);
-
-    // Extract commitments efficiently
-    const commitments = result.rows.map(row => row.commitment);
-
-    // Performance tracking for large datasets
-    const startTime = Date.now();
-
-    // Calculate Merkle root
-    const merkleRoot = await this.cryptoService.calculateMerkleRoot(commitments);
-
-    const duration = Date.now() - startTime;
-    console.log(`✅ Merkle root calculated in ${duration}ms for ${totalCommitments} commitments`);
-
-    return {
-      campaignId,
-      merkleRoot,
-      totalCommitments,
-      calculatedAt: new Date().toISOString()
-    };
-  }
-
-  /**
-   * Get saved Merkle root for a campaign
-   */
-  async getCampaignMerkleRoot(campaignId: string) {
-    const result = await db.query(
-      'SELECT merkle_root, published_at FROM survey_campaigns WHERE id = $1',
-      [campaignId]
-    );
-
-    if (result.rowCount === 0) {
-      throw new Error('Campaign not found');
-    }
-
-    const row = result.rows[0];
-
-    if (!row.merkle_root) {
-      throw new Error('Merkle root not calculated for this campaign');
-    }
-
-    // Get total commitments
-    const commitmentsResult = await db.query(
-      `SELECT COUNT(*) as total
-       FROM survey_responses
-       WHERE campaign_id = $1 AND commitment IS NOT NULL`,
-      [campaignId]
-    );
-
-    return {
-      campaignId,
-      merkleRoot: row.merkle_root,
-      totalCommitments: parseInt(commitmentsResult.rows[0].total),
-      calculatedAt: row.published_at || new Date().toISOString()
-    };
   }
 
   // ============================================================================
   // CAMPAIGN ANALYTICS
   // ============================================================================
+
+  /**
+   * Get stored Merkle root from database
+   */
+  async getCampaignMerkleRoot(campaignId: string) {
+    const result = await db.query(
+      'SELECT responses_merkle_root, total_responses, responses_published_at FROM survey_campaigns WHERE id = $1',
+      [campaignId]
+    );
+
+    if (result.rowCount === 0) {
+      throw new Error('Campaign not found');
+    }
+
+    const campaign = result.rows[0];
+    if (!campaign.responses_merkle_root) {
+      throw new Error('Merkle root not calculated for this campaign');
+    }
+
+    return {
+      merkleRoot: campaign.responses_merkle_root,
+      totalResponses: campaign.total_responses,
+      publishedAt: campaign.responses_published_at
+    };
+  }
 
   /**
    * Generate campaign analytics
@@ -467,8 +400,9 @@ export class AnalyticsService {
 
   /**
    * Verify teacher performance against blockchain Merkle roots
+   * UPDATED: Now gets Merkle root from BLOCKCHAIN, not database
    */
-  async verifyTeacherPerformance(teacherId: string, campaignIds: string): Promise<boolean> {
+  async verifyTeacherPerformance(teacherId: string, campaignId: string): Promise<boolean> {
     // Get teacher's commitments from database
     const commitmentsResult = await db.query(
       `SELECT sr.commitment
@@ -476,7 +410,7 @@ export class AnalyticsService {
        JOIN decrypted_responses dr ON sr.id = dr.response_id
        JOIN surveys s ON dr.survey_id = s.id
        WHERE s.teacher_id = $1 AND s.campaign_id = $2`,
-      [teacherId, campaignIds]
+      [teacherId, campaignId]
     );
 
     if (commitmentsResult.rowCount === 0) {
@@ -485,33 +419,59 @@ export class AnalyticsService {
 
     const commitments = commitmentsResult.rows.map(row => row.commitment);
 
-    // Get campaign Merkle root from blockchain
-    const campaign = await db.query(
-      'SELECT merkle_root FROM survey_campaigns WHERE id = $1',
-      [campaignIds]
-    );
-    if (!campaign.rowCount || campaign.rowCount === 0 || !campaign.rows[0].merkle_root) {
-      throw new Error('No Merkle root found for campaign');
-    }
-    const campaignRoot = campaign.rows[0].merkle_root;
-
-    // Verify each commitment against the campaign root
-    for (let i = 0; i < commitments.length; i++) {
-      const commitment = commitments[i];
-      const proof = await this.generateMerkleProof(commitments, commitment);
-      
-      const isValid = await this.verifyMerkleProof(
-        commitment,
-        proof,
-        campaignRoot
+    // Get campaign Merkle root from BLOCKCHAIN (not database!)
+    if (!this.blockchainService) {
+      console.warn('⚠️ Blockchain service not available, falling back to database verification');
+      // Fallback to database if blockchain not available
+      const campaign = await db.query(
+        'SELECT responses_merkle_root FROM survey_campaigns WHERE id = $1',
+        [campaignId]
       );
-      
-      if (!isValid) {
-        return false;
+      if (!campaign.rowCount || !campaign.rows[0].responses_merkle_root) {
+        throw new Error('No Merkle root found for campaign');
       }
+      const campaignRoot = campaign.rows[0].responses_merkle_root;
+
+      // Verify using MerkleService
+      for (const commitment of commitments) {
+        const isValid = await this.merkleService.verifyResponseCommitment(campaignId, commitment);
+        if (!isValid) {
+          return false;
+        }
+      }
+      return true;
     }
 
-    return true;
+    try {
+      // Get Merkle root from blockchain
+      const campaign = await this.blockchainService.getCampaign(campaignId);
+
+      if (!campaign.responsesMerkleRoot) {
+        throw new Error('Campaign responses Merkle root not published on blockchain');
+      }
+
+      // Convert blockchain root to hex string
+      const campaignRoot = Buffer.from(campaign.responsesMerkleRoot as any).toString('hex');
+
+      console.log(`🔍 Verifying ${commitments.length} teacher commitments against blockchain root`);
+      console.log(`   Campaign: ${campaignId}`);
+      console.log(`   Root: ${campaignRoot}`);
+
+      // Verify each commitment using MerkleService
+      for (const commitment of commitments) {
+        const isValid = await this.merkleService.verifyResponseCommitment(campaignId, commitment);
+        if (!isValid) {
+          console.error(`❌ Invalid commitment: ${commitment}`);
+          return false;
+        }
+      }
+
+      console.log(`✅ All teacher commitments verified against blockchain`);
+      return true;
+    } catch (error: any) {
+      console.error(`Failed to verify against blockchain: ${error.message}`);
+      throw error;
+    }
   }
 
   // ============================================================================

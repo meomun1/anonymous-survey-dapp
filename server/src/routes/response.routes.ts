@@ -1,26 +1,16 @@
 import { Router } from 'express';
 import { ResponseController } from '../controllers/response.controller';
+import { verifyBlindSignature } from '../middleware/verifyBlindSignature';
 
 const router = Router();
 const responseController = new ResponseController();
 
-/**
- * @swagger
- * /responses/ingest/{campaignId}:
- *   post:
- *     summary: Ingest encrypted responses from blockchain for a campaign
- *     tags: [Responses]
- *     parameters:
- *       - in: path
- *         name: campaignId
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Ingest summary
- */
-router.post('/ingest/:campaignId', responseController.ingestFromBlockchain.bind(responseController));
+// ============================================================================
+// NOTE: Old blockchain routes removed (NEW ARCHITECTURE)
+// - POST /ingest/:campaignId - REMOVED (no longer needed)
+// - POST /decrypt-campaign/:campaignId - REMOVED (responses already decrypted in Phase 3)
+// - POST /submit - REMOVED (use POST /batch for Phase 3)
+// ============================================================================
 
 /**
  * @swagger
@@ -57,24 +47,6 @@ router.get('/encrypted/:campaignId', responseController.getEncryptedResponses.bi
  *         description: List of decrypted responses
  */
 router.get('/decrypted/:campaignId', responseController.getDecryptedResponses.bind(responseController));
-
-/**
- * @swagger
- * /responses/decrypt-campaign/{campaignId}:
- *   post:
- *     summary: Decrypt and parse all campaign responses
- *     tags: [Responses]
- *     parameters:
- *       - in: path
- *         name: campaignId
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Decryption summary
- */
-router.post('/decrypt-campaign/:campaignId', responseController.decryptCampaignResponses.bind(responseController));
 
 /**
  * @swagger
@@ -133,10 +105,13 @@ router.get('/verify/:decryptedResponseId', responseController.verifyResponseInte
 
 /**
  * @swagger
- * /responses/submit:
+ * /responses/submit-batch:
  *   post:
- *     summary: Submit student responses to blockchain
- *     tags: [Responses]
+ *     summary: Phase 3 - Submit batch responses with blind signature authorization
+ *     tags: [Double Blind Signature Workflow]
+ *     security:
+ *       - bearerAuth: []
+ *     description: Submit all survey responses anonymously with authorization signature. Returns receipt signature.
  *     requestBody:
  *       required: true
  *       content:
@@ -144,46 +119,61 @@ router.get('/verify/:decryptedResponseId', responseController.verifyResponseInte
  *           schema:
  *             type: object
  *             required:
- *               - token
+ *               - campaignId
  *               - responses
+ *               - ticketCommitment
+ *               - blindedReceipt
  *             properties:
- *               token:
+ *               campaignId:
  *                 type: string
- *                 description: Student token
+ *                 description: Campaign ID
  *               responses:
  *                 type: array
  *                 items:
  *                   type: object
+ *                   required:
+ *                     - surveyId
+ *                     - encryptedAnswer
+ *                     - commitment
  *                   properties:
  *                     surveyId:
  *                       type: string
- *                     encryptedData:
+ *                       description: Survey ID
+ *                     encryptedAnswer:
  *                       type: string
- *                       format: base64
+ *                       description: Base64-encoded encrypted answer
  *                     commitment:
  *                       type: string
- *                       format: hex
+ *                       description: Hex-encoded SHA-256 commitment
+ *               ticketCommitment:
+ *                 type: string
+ *                 description: SHA-256 commitment for survey count
+ *               blindedReceipt:
+ *                 type: string
+ *                 description: Base64-encoded blinded receipt
  *     responses:
  *       200:
- *         description: Responses submitted successfully
+ *         description: Batch submission successful, receipt signature issued
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                 transactionHash:
+ *                 blindSignature:
  *                   type: string
- *                 message:
+ *                   description: Base64-encoded receipt blind signature
+ *                 submittedAt:
  *                   type: string
+ *                   format: date-time
+ *                 processedCount:
+ *                   type: number
  *       400:
- *         description: Invalid request
- *       404:
- *         description: Token not found
- *       500:
- *         description: Blockchain submission failed
+ *         description: Missing fields or validation failed
+ *       401:
+ *         description: Invalid authorization signature
+ *       409:
+ *         description: Authorization already used
  */
-router.post('/submit', responseController.submitStudentResponses.bind(responseController));
+router.post('/submit-batch', verifyBlindSignature, responseController.submitBatchResponses.bind(responseController));
 
 export default router; 

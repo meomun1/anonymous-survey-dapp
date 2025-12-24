@@ -14,16 +14,48 @@ export type AnonymousSurvey = {
   },
   "instructions": [
     {
-      "name": "createCampaign",
+      "name": "closeCampaign",
+      "docs": [
+        "Close campaign (prevents further updates)",
+        "Called by admin when campaign is complete"
+      ],
       "discriminator": [
-        111,
-        131,
-        187,
-        98,
-        160,
-        193,
-        114,
-        244
+        65,
+        49,
+        110,
+        7,
+        63,
+        238,
+        206,
+        77
+      ],
+      "accounts": [
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initializeCampaign",
+      "docs": [
+        "Initialize a new campaign on blockchain",
+        "Called by admin when creating a campaign in the database"
+      ],
+      "discriminator": [
+        169,
+        88,
+        7,
+        6,
+        9,
+        165,
+        65,
+        132
       ],
       "accounts": [
         {
@@ -45,10 +77,6 @@ export type AnonymousSurvey = {
                 ]
               },
               {
-                "kind": "account",
-                "path": "authority"
-              },
-              {
                 "kind": "arg",
                 "path": "campaignId"
               }
@@ -56,7 +84,7 @@ export type AnonymousSurvey = {
           }
         },
         {
-          "name": "authority",
+          "name": "admin",
           "writable": true,
           "signer": true
         },
@@ -69,105 +97,25 @@ export type AnonymousSurvey = {
         {
           "name": "campaignId",
           "type": "string"
-        },
-        {
-          "name": "semester",
-          "type": "string"
-        },
-        {
-          "name": "campaignType",
-          "type": "u8"
-        },
-        {
-          "name": "blindSignaturePublicKey",
-          "type": "bytes"
-        },
-        {
-          "name": "encryptionPublicKey",
-          "type": "bytes"
         }
       ]
     },
     {
-      "name": "initializeFinalRoot",
-      "discriminator": [
-        208,
-        43,
-        2,
-        5,
-        215,
-        226,
-        124,
-        136
+      "name": "publishResponsesMerkleRoot",
+      "docs": [
+        "Publish responses Merkle root (Merkle Tree #1)",
+        "Called by admin after collecting all responses off-chain",
+        "Server calculates Merkle root from response commitments in database"
       ],
-      "accounts": [
-        {
-          "name": "finalRoot",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  110,
-                  105,
-                  118,
-                  101,
-                  114,
-                  115,
-                  105,
-                  116,
-                  121,
-                  95,
-                  112,
-                  101,
-                  114,
-                  102,
-                  111,
-                  114,
-                  109,
-                  97,
-                  110,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "universityId"
-              }
-            ]
-          }
-        },
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "universityId",
-          "type": "string"
-        }
-      ]
-    },
-    {
-      "name": "publishCampaignResults",
       "discriminator": [
-        32,
-        231,
-        48,
-        179,
-        88,
-        154,
-        199,
-        142
+        140,
+        217,
+        102,
+        120,
+        51,
+        20,
+        126,
+        161
       ],
       "accounts": [
         {
@@ -175,13 +123,8 @@ export type AnonymousSurvey = {
           "writable": true
         },
         {
-          "name": "authority",
-          "writable": true,
+          "name": "admin",
           "signer": true
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -193,20 +136,29 @@ export type AnonymousSurvey = {
               32
             ]
           }
+        },
+        {
+          "name": "totalResponses",
+          "type": "u32"
         }
       ]
     },
     {
-      "name": "submitBatchResponses",
+      "name": "updateClaimedReceiptsRoot",
+      "docs": [
+        "Update claimed receipts Merkle root (Merkle Tree #2)",
+        "Called by admin periodically to batch-publish new claims",
+        "Server calculates Merkle root from receipt hashes in database"
+      ],
       "discriminator": [
-        42,
-        147,
-        129,
+        52,
+        116,
+        103,
+        120,
+        131,
+        187,
         63,
-        213,
-        4,
-        8,
-        93
+        72
       ],
       "accounts": [
         {
@@ -214,158 +166,131 @@ export type AnonymousSurvey = {
           "writable": true
         },
         {
-          "name": "authority",
-          "writable": true,
+          "name": "admin",
           "signer": true
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "commitments",
-          "type": {
-            "vec": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          }
-        },
-        {
-          "name": "encryptedResponses",
-          "type": {
-            "vec": {
-              "array": [
-                "u8",
-                256
-              ]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "updateFinalMerkleRoot",
-      "discriminator": [
-        129,
-        22,
-        150,
-        101,
-        100,
-        217,
-        246,
-        156
-      ],
-      "accounts": [
-        {
-          "name": "finalRoot",
-          "writable": true
-        },
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "finalMerkleRoot",
+          "name": "merkleRoot",
           "type": {
             "array": [
               "u8",
               32
             ]
           }
+        },
+        {
+          "name": "claimedCount",
+          "type": "u32"
         }
       ]
     }
   ],
   "accounts": [
     {
-      "name": "surveyCampaign",
+      "name": "campaign",
       "discriminator": [
-        72,
-        247,
-        60,
-        211,
-        127,
-        228,
-        78,
-        166
+        50,
+        40,
+        49,
+        11,
+        157,
+        220,
+        229,
+        192
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "campaignClosed",
+      "discriminator": [
+        158,
+        143,
+        128,
+        251,
+        84,
+        131,
+        2,
+        90
       ]
     },
     {
-      "name": "universityPerformance",
+      "name": "campaignInitialized",
       "discriminator": [
-        245,
-        103,
-        73,
-        157,
-        230,
-        183,
-        132,
-        22
+        22,
+        192,
+        125,
+        123,
+        243,
+        139,
+        58,
+        7
+      ]
+    },
+    {
+      "name": "claimedReceiptsRootUpdated",
+      "discriminator": [
+        222,
+        67,
+        74,
+        27,
+        210,
+        19,
+        164,
+        240
+      ]
+    },
+    {
+      "name": "responsesMerkleRootPublished",
+      "discriminator": [
+        196,
+        57,
+        231,
+        177,
+        12,
+        168,
+        122,
+        52
       ]
     }
   ],
   "errors": [
     {
       "code": 6000,
-      "name": "campaignAlreadyPublished",
-      "msg": "Campaign is already published"
+      "name": "campaignIdTooLong",
+      "msg": "Campaign ID is too long (max 50 characters)"
     },
     {
       "code": 6001,
-      "name": "campaignIdTooLong",
-      "msg": "Campaign ID is too long"
+      "name": "unauthorized",
+      "msg": "Unauthorized: Only admin can perform this action"
     },
     {
       "code": 6002,
-      "name": "semesterTooLong",
-      "msg": "Semester is too long"
+      "name": "campaignClosed",
+      "msg": "Campaign is closed and cannot be modified"
     },
     {
       "code": 6003,
-      "name": "invalidCampaignType",
-      "msg": "Invalid campaign type"
+      "name": "alreadyPublished",
+      "msg": "Responses Merkle root already published"
     },
     {
       "code": 6004,
-      "name": "publicKeyTooLong",
-      "msg": "Public key is too long"
-    },
-    {
-      "code": 6005,
-      "name": "unauthorized",
-      "msg": "unauthorized"
-    },
-    {
-      "code": 6006,
-      "name": "noResponsesSubmitted",
-      "msg": "No responses submitted"
-    },
-    {
-      "code": 6007,
-      "name": "mismatchedDataLength",
-      "msg": "Mismatched data length"
+      "name": "noResponses",
+      "msg": "No responses to publish"
     }
   ],
   "types": [
     {
-      "name": "surveyCampaign",
+      "name": "campaign",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "authority",
+            "name": "admin",
             "type": "pubkey"
           },
           {
@@ -373,16 +298,38 @@ export type AnonymousSurvey = {
             "type": "string"
           },
           {
-            "name": "semester",
-            "type": "string"
-          },
-          {
-            "name": "campaignType",
-            "type": "u8"
+            "name": "responsesMerkleRoot",
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
           },
           {
             "name": "totalResponses",
             "type": "u32"
+          },
+          {
+            "name": "claimedReceiptsRoot",
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "claimedCount",
+            "type": "u32"
+          },
+          {
+            "name": "isClosed",
+            "type": "bool"
           },
           {
             "name": "createdAt",
@@ -391,10 +338,54 @@ export type AnonymousSurvey = {
           {
             "name": "updatedAt",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "campaignClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaignId",
+            "type": "string"
           },
           {
-            "name": "isPublished",
-            "type": "bool"
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "campaignInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaignId",
+            "type": "string"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "claimedReceiptsRootUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaignId",
+            "type": "string"
           },
           {
             "name": "merkleRoot",
@@ -406,71 +397,41 @@ export type AnonymousSurvey = {
             }
           },
           {
-            "name": "encryptedResponses",
-            "type": {
-              "vec": {
-                "array": [
-                  "u8",
-                  256
-                ]
-              }
-            }
+            "name": "claimedCount",
+            "type": "u32"
           },
           {
-            "name": "commitments",
-            "type": {
-              "vec": {
-                "array": [
-                  "u8",
-                  32
-                ]
-              }
-            }
-          },
-          {
-            "name": "blindSignaturePublicKey",
-            "type": "bytes"
-          },
-          {
-            "name": "encryptionPublicKey",
-            "type": "bytes"
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "universityPerformance",
+      "name": "responsesMerkleRootPublished",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "universityId",
+            "name": "campaignId",
             "type": "string"
           },
           {
-            "name": "totalCampaigns",
-            "type": "u32"
-          },
-          {
-            "name": "createdAt",
-            "type": "i64"
-          },
-          {
-            "name": "updatedAt",
-            "type": "i64"
-          },
-          {
-            "name": "finalMerkleRoot",
+            "name": "merkleRoot",
             "type": {
               "array": [
                 "u8",
                 32
               ]
             }
+          },
+          {
+            "name": "totalResponses",
+            "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }

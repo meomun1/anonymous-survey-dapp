@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { TokenController } from '../controllers/token.controller';
 import { verifyToken, requireAdmin } from '../middleware/auth.middleware';
+import { verifyReceiptSignature } from '../middleware/verifyBlindSignature';
 
 const router = Router();
 const tokenController = new TokenController();
@@ -353,5 +354,151 @@ router.get('/student/:email', tokenController.getStudentTokens.bind(tokenControl
  *         description: Forbidden - Admin access required
  */
 router.get('/test-email', verifyToken, requireAdmin, tokenController.testEmailService.bind(tokenController));
+
+/**
+ * @swagger
+ * /tokens/login:
+ *   get:
+ *     summary: Phase 1 - Get ticket commitment and surveys
+ *     tags: [Double Blind Signature Workflow]
+ *     security:
+ *       - bearerAuth: []
+ *     description: Issue ticket commitment and return surveys for student token. Token must not have ticket issued yet.
+ *     responses:
+ *       200:
+ *         description: Ticket and surveys issued
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 surveys:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       title:
+ *                         type: string
+ *                       courseCode:
+ *                         type: string
+ *                       courseName:
+ *                         type: string
+ *                       teacherId:
+ *                         type: string
+ *                       teacherName:
+ *                         type: string
+ *                 ticketCommitment:
+ *                   type: string
+ *                   description: SHA-256 commitment for survey count
+ *                 campaignId:
+ *                   type: string
+ *       401:
+ *         description: Missing or invalid authorization
+ *       404:
+ *         description: Invalid token
+ *       409:
+ *         description: Ticket already issued
+ */
+router.get('/login', tokenController.getTicketAndSurveys.bind(tokenController));
+
+/**
+ * @swagger
+ * /tokens/blind-sign-token:
+ *   post:
+ *     summary: Phase 1 - Sign blinded token
+ *     tags: [Double Blind Signature Workflow]
+ *     security:
+ *       - bearerAuth: []
+ *     description: Sign blinded token for authorization. Token must not be used yet.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - blindedToken
+ *               - campaignId
+ *             properties:
+ *               blindedToken:
+ *                 type: string
+ *                 description: Base64-encoded blinded token
+ *               campaignId:
+ *                 type: string
+ *                 description: Campaign ID
+ *     responses:
+ *       200:
+ *         description: Blind signature issued
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 blindSignature:
+ *                   type: string
+ *                   description: Base64-encoded blind signature
+ *       400:
+ *         description: Missing required fields or campaign mismatch
+ *       401:
+ *         description: Missing or invalid authorization
+ *       404:
+ *         description: Invalid token
+ *       409:
+ *         description: Token already used
+ */
+router.post('/blind-sign-token', tokenController.blindSignToken.bind(tokenController));
+
+/**
+ * @swagger
+ * /tokens/participation/claim:
+ *   post:
+ *     summary: Phase 4 - Claim participation with receipt signature
+ *     tags: [Double Blind Signature Workflow]
+ *     security:
+ *       - bearerAuth: []
+ *     description: Claim participation using receipt signature. Links anonymous submission to student identity.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - campaignId
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 description: Student email address
+ *               campaignId:
+ *                 type: string
+ *                 description: Campaign ID
+ *     responses:
+ *       200:
+ *         description: Participation claimed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 participationRecorded:
+ *                   type: boolean
+ *                 claimedAt:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: Missing email or token not authorized
+ *       401:
+ *         description: Invalid receipt signature
+ *       404:
+ *         description: Token not found
+ *       409:
+ *         description: Participation already claimed or receipt already used
+ */
+router.post('/participation/claim', verifyReceiptSignature, tokenController.claimParticipation.bind(tokenController));
 
 export default router; 

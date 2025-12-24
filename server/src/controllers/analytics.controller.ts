@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import { AnalyticsService } from '../services/analytics.service';
-import { CryptoService } from '../services/crypto.service';
+import { MerkleService } from '../services/merkle.service';
 
 const analyticsService = new AnalyticsService();
-const cryptoService = new CryptoService();
+const merkleService = new MerkleService();
 
 export class AnalyticsController {
   // ============================================================================
@@ -13,12 +13,12 @@ export class AnalyticsController {
   async calculateMerkleRoot(req: Request, res: Response) {
     try {
       const { commitments } = req.body;
-      
+
       if (!Array.isArray(commitments) || commitments.length === 0) {
         return res.status(400).json({ error: 'Commitments array is required' });
       }
 
-      const merkleRoot = await cryptoService.calculateMerkleRoot(commitments);
+      const merkleRoot = await merkleService.calculateMerkleRoot(commitments);
       res.json({ merkleRoot });
     } catch (error) {
       console.error('Failed to calculate Merkle root:', error);
@@ -29,12 +29,12 @@ export class AnalyticsController {
   async calculateFinalMerkleRoot(req: Request, res: Response) {
     try {
       const { campaignRoots } = req.body;
-      
+
       if (!Array.isArray(campaignRoots) || campaignRoots.length === 0) {
         return res.status(400).json({ error: 'Campaign roots array is required' });
       }
 
-      const finalMerkleRoot = await cryptoService.calculateFinalMerkleRoot(campaignRoots);
+      const finalMerkleRoot = await merkleService.calculateMerkleRoot(campaignRoots);
       res.json({ finalMerkleRoot });
     } catch (error) {
       console.error('Failed to calculate final Merkle root:', error);
@@ -45,12 +45,12 @@ export class AnalyticsController {
   async generateMerkleProof(req: Request, res: Response) {
     try {
       const { commitments, targetCommitment } = req.body;
-      
+
       if (!Array.isArray(commitments) || !targetCommitment) {
         return res.status(400).json({ error: 'Commitments array and target commitment are required' });
       }
 
-      const proof = await cryptoService.generateMerkleProof(commitments, targetCommitment);
+      const proof = await merkleService.generateMerkleProof(commitments, targetCommitment);
       res.json({ proof });
     } catch (error) {
       console.error('Failed to generate Merkle proof:', error);
@@ -69,7 +69,7 @@ export class AnalyticsController {
         return res.status(400).json({ error: 'Commitment, proof, and root are required' });
       }
 
-      const isValid = await cryptoService.verifyMerkleProof(commitment, proof, root);
+      const isValid = await merkleService.verifyMerkleProof(commitment, proof, root);
       res.json({ isValid });
     } catch (error) {
       console.error('Failed to verify Merkle proof:', error);
@@ -80,7 +80,8 @@ export class AnalyticsController {
   async calculateCampaignMerkleRoot(req: Request, res: Response) {
     try {
       const { campaignId } = req.params;
-      const result = await analyticsService.calculateCampaignMerkleRoot(campaignId);
+      // Use merkleService instead of analyticsService
+      const result = await merkleService.calculateCampaignResponsesRoot(campaignId);
       res.json(result);
     } catch (error) {
       console.error('Failed to calculate campaign Merkle root:', error);

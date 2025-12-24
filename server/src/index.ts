@@ -16,6 +16,7 @@ import authRoutes from './routes/auth.routes';
 import campaignRoutes from './routes/campaign.routes';
 import universityRoutes from './routes/university.routes';
 import analyticsRoutes from './routes/analytics.routes';
+import verificationRoutes from './routes/verification.routes';
 
 // Load environment variables
 dotenv.config();
@@ -36,7 +37,7 @@ app.use('/api', apiLimiter);
 app.get('/health', async (req, res) => {
   try {
     // Check Redis connection
-    const redisStatus = redisClient.isReady ? 'connected' : 'disconnected';
+    const redisStatus = redisClient?.isReady ? 'connected' : 'disconnected';
     
     res.json({ 
       status: 'ok',
@@ -83,6 +84,8 @@ app.use('/api/surveys', surveyRoutes);
 app.use('/api/tokens', tokenRoutes);
 app.use('/api/responses', responseRoutes);
 app.use('/api/crypto', cryptoRoutes);
+// Verification routes (public - mounted before campaigns to ensure /campaigns/:id/verification matches)
+app.use('/api', verificationRoutes);
 // public-responses route removed
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/university', universityRoutes);
@@ -95,8 +98,10 @@ app.use(errorHandler);
 app.listen(port, async () => {
   try {
     // Connect to Redis
-    await redisClient.connect();
-    console.log('Connected to Redis');
+    if (redisClient) {
+      await redisClient.connect();
+      console.log('Connected to Redis');
+    }
     console.log(`Server is running on port ${port}`);
     console.log(`Health check available at: http://localhost:${port}/health`);
     console.log(`API documentation available at: /api-docs`);

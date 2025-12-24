@@ -8,6 +8,7 @@ import { CryptoService } from './crypto.service';
 import { TokenService } from './token.service';
 import { SurveyService } from './survey.service';
 import { EmailService } from './email.service';
+import { MerkleService } from './merkle.service';
 
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
@@ -26,6 +27,16 @@ function transformCampaign(row: any) {
     createdByName: row.created_by_name,
     blockchainAddress: row.blockchain_address,
     encryptedPrivateKey: row.encrypted_private_key,
+    // New blockchain fields
+    responsesMerkleRoot: row.responses_merkle_root,
+    totalResponses: row.total_responses,
+    responsesPublishedAt: row.responses_published_at,
+    claimedReceiptsRoot: row.claimed_receipts_root,
+    totalClaimed: row.total_claimed,
+    claimsUpdatedAt: row.claims_updated_at,
+    blockchainClosed: row.blockchain_closed,
+    blockchainClosedAt: row.blockchain_closed_at,
+    blockchainSignature: row.blockchain_signature,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -43,13 +54,15 @@ export class CampaignService {
   private tokenService: TokenService;
   private surveyService: SurveyService;
   private emailService: EmailService;
+  private merkleService: MerkleService;
 
   constructor() {
     this.tokenService = new TokenService();
     this.surveyService = new SurveyService();
     this.emailService = new EmailService();
+    this.merkleService = new MerkleService();
     this.fallbackMode = process.env.SOLANA_FALLBACK_MODE === 'true';
-    
+
     // Only initialize blockchain service if not in fallback mode
     if (!this.fallbackMode) {
       try {
@@ -131,26 +144,22 @@ export class CampaignService {
 
     let campaign = result.rows[0];
 
-    // Create blockchain account if not in fallback mode
+    // Initialize campaign on blockchain (NEW ARCHITECTURE)
     if (!this.fallbackMode && this.blockchainService) {
       try {
-        const blockchainAddress = await this.blockchainService.createCampaign({
-          campaignId,
-          semester: data.semesterId,
-          campaignType: data.type === 'course' ? 0 : 1,
-          blindSignaturePublicKey: Buffer.from(blindPublicKey),
-          encryptionPublicKey: Buffer.from(encryptionPublicKeyExported)
-        });
+        // NEW: Simple initialization with just campaignId
+        const signature = await this.blockchainService.initializeCampaign(campaignId);
 
-        // Update campaign with blockchain address
+        // Store blockchain signature
         await db.query(
-          'UPDATE survey_campaigns SET blockchain_address = $1 WHERE id = $2',
-          [blockchainAddress, campaignId]
+          'UPDATE survey_campaigns SET blockchain_signature = $1 WHERE id = $2',
+          [signature, campaignId]
         );
 
-        campaign.blockchain_address = blockchainAddress;
+        campaign.blockchain_signature = signature;
+        console.log(`✅ Campaign ${campaignId} initialized on blockchain`);
       } catch (error) {
-        console.warn('⚠️ Failed to create blockchain campaign:', error);
+        console.warn('⚠️ Failed to initialize blockchain campaign:', error);
         // Continue without blockchain integration
       }
     }
@@ -510,48 +519,128 @@ export class CampaignService {
   }
 
   /**
-   * Publish campaign results
+   * Publish campaign responses to blockchain (Tree #1)
+   * NEW: Replaces old publishCampaign() - now splits into two separate methods
    */
-  async publishCampaign(id: string, merkleRoot: string) {
-    // First, count the actual responses for this campaign
-    const responseCount = await db.query(
-      'SELECT COUNT(*) as total FROM survey_responses WHERE campaign_id = $1',
-      [id]
-    );
-    const totalResponses = parseInt(responseCount.rows[0]?.total || '0');
+  async publishCampaignResponses(campaignId: string) {
+    // Calculate responses Merkle root using MerkleService
+    const { merkleRoot, totalCommitments } =
+      await this.merkleService.calculateCampaignResponsesRoot(campaignId);
 
-    // Update campaign with merkle root, published status, and accurate response count
-    const result = await db.query(
-      `UPDATE survey_campaigns
-       SET status = 'published',
-           merkle_root = $1,
-           total_responses = $2,
-           published_at = CURRENT_TIMESTAMP,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3 AND status = 'closed'
-       RETURNING *`,
-      [merkleRoot, totalResponses, id]
-    );
+    console.log(`📊 Publishing responses Merkle root for campaign: ${campaignId}`);
+    console.log(`   Total responses: ${totalCommitments}`);
+    console.log(`   Merkle root: ${merkleRoot}`);
 
-    if (result.rowCount === 0) {
-      throw new Error('Campaign not found or not in closed status');
-    }
-
-    // Update blockchain if not in fallback mode
+    // Publish to blockchain
     if (!this.fallbackMode && this.blockchainService) {
       try {
-        await this.blockchainService.publishCampaignResults(id, merkleRoot);
+        const signature = await this.blockchainService.publishResponsesMerkleRoot(
+          campaignId,
+          merkleRoot,
+          totalCommitments
+        );
+        console.log(`✅ Responses Merkle root published to blockchain: ${signature}`);
       } catch (error) {
-        console.warn('⚠️ Failed to publish campaign results to blockchain:', error);
+        console.warn('⚠️ Failed to publish responses Merkle root to blockchain:', error);
         // Continue without blockchain integration
       }
     }
 
+    // Store in database
+    await db.query(
+      `UPDATE survey_campaigns
+       SET responses_merkle_root = $1,
+           total_responses = $2,
+           responses_published_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $3`,
+      [merkleRoot, totalCommitments, campaignId]
+    );
+
     // Clear cache
-    await this.clearCampaignCache(id);
+    await this.clearCampaignCache(campaignId);
     await this.clearCampaignsCache();
 
-    return result.rows[0];
+    return { merkleRoot, totalResponses: totalCommitments };
+  }
+
+  /**
+   * Publish claimed receipts to blockchain (Tree #2)
+   * Can be called multiple times for batched updates
+   */
+  async publishClaimedReceipts(campaignId: string) {
+    // Calculate claimed receipts Merkle root using MerkleService
+    const { merkleRoot, totalClaimed } =
+      await this.merkleService.calculateCampaignClaimedReceiptsRoot(campaignId);
+
+    console.log(`📊 Publishing claimed receipts Merkle root for campaign: ${campaignId}`);
+    console.log(`   Total claimed: ${totalClaimed}`);
+    console.log(`   Merkle root: ${merkleRoot}`);
+
+    // Publish to blockchain (can be called multiple times)
+    if (!this.fallbackMode && this.blockchainService) {
+      try {
+        const signature = await this.blockchainService.updateClaimedReceiptsRoot(
+          campaignId,
+          merkleRoot,
+          totalClaimed
+        );
+        console.log(`✅ Claimed receipts root published to blockchain: ${signature}`);
+      } catch (error) {
+        console.warn('⚠️ Failed to publish claimed receipts root to blockchain:', error);
+        // Continue without blockchain integration
+      }
+    }
+
+    // Store in database
+    await db.query(
+      `UPDATE survey_campaigns
+       SET claimed_receipts_root = $1,
+           total_claimed = $2,
+           claims_updated_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $3`,
+      [merkleRoot, totalClaimed, campaignId]
+    );
+
+    // Clear cache
+    await this.clearCampaignCache(campaignId);
+    await this.clearCampaignsCache();
+
+    return { merkleRoot, totalClaimed };
+  }
+
+  /**
+   * Close campaign on blockchain (prevents further updates)
+   * NEW METHOD
+   */
+  async closeCampaignOnBlockchain(campaignId: string) {
+    if (!this.fallbackMode && this.blockchainService) {
+      try {
+        const signature = await this.blockchainService.closeCampaign(campaignId);
+
+        await db.query(
+          `UPDATE survey_campaigns
+           SET blockchain_closed = true,
+               blockchain_closed_at = NOW(),
+               updated_at = NOW()
+           WHERE id = $1`,
+          [campaignId]
+        );
+
+        // Clear cache
+        await this.clearCampaignCache(campaignId);
+        await this.clearCampaignsCache();
+
+        console.log(`✅ Campaign closed on blockchain: ${signature}`);
+        return signature;
+      } catch (error: any) {
+        console.error('⚠️ Failed to close campaign on blockchain:', error);
+        throw error;
+      }
+    } else {
+      throw new Error('Blockchain service not available');
+    }
   }
 
   // ============================================================================

@@ -96,259 +96,207 @@ export class BlockchainService {
   }
 
   // ============================================================================
-  // CAMPAIGN-BASED METHODS (University Scale)
+  // NEW BLOCKCHAIN ARCHITECTURE - Merkle Tree Approach
+  // Only Merkle roots stored on-chain, NOT individual responses
   // ============================================================================
 
   /**
-   * Initialize the final Merkle root account (university performance)
-   * @param {string} universityId - University identifier
-   * @returns {Promise<string>} Transaction signature
-   */
-  async initializeFinalRoot(universityId: string = 'international_university'): Promise<string> {
-    try {
-      const [universityPerformancePda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('university_performance'), Buffer.from(universityId)],
-        this.program.programId
-      );
-
-      const signature = await this.program.methods
-        .initializeFinalRoot(universityId)
-        .accounts({
-          finalRoot: universityPerformancePda,
-          authority: this.authority.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .rpc();
-
-      return signature;
-    } catch (error: any) {
-      throw new Error(`Failed to initialize final root: ${error.message}`);
-    }
-  }
-
-  /**
-   * Helper method to get campaign PDA with short campaignId (matching blockchain program)
-   * @param {string} campaignId - Campaign ID
+   * Get campaign PDA address
+   * @param {string} campaignId - Campaign ID (max 50 chars)
    * @returns {PublicKey} Campaign PDA
    */
-  private getCampaignPDAWithShortId(campaignId: string): PublicKey {
-    const crypto = require('crypto');
-    const campaignIdHash = crypto.createHash('sha256').update(campaignId).digest();
-    const shortCampaignId = campaignIdHash.toString('hex').substring(0, 16);
-    
+  /**
+   * Get shortened campaign ID for use as Solana seed
+   * Takes first 8 characters of UUID to fit within 32-byte limit
+   */
+  private getShortCampaignId(campaignId: string): string {
+    return campaignId.substring(0, 8);
+  }
+
+  private getCampaignPDA(campaignId: string): PublicKey {
+    // Use shortened campaign ID to fit within Solana's 32-byte seed limit
+    // Full UUIDs are 36 bytes which exceeds the limit
+    const shortId = this.getShortCampaignId(campaignId);
+
     const [campaignPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('campaign'), this.authority.publicKey.toBuffer(), Buffer.from(shortCampaignId)],
+      [Buffer.from('campaign'), Buffer.from(shortId)],
       this.program.programId
     );
     return campaignPda;
   }
 
   /**
-   * Create a new survey campaign
-   * @param {Object} data - Campaign data
-   * @returns {Promise<string>} Campaign PDA address
-   */
-  async createCampaign(data: {
-    campaignId: string;
-    semester: string;
-    campaignType: number; // 0 = Course, 1 = Event
-    blindSignaturePublicKey: Buffer;
-    encryptionPublicKey: Buffer;
-  }): Promise<string> {
-    try {
-      const campaignPda = this.getCampaignPDAWithShortId(data.campaignId);
-      
-      // Use a shorter campaign_id for the blockchain program (first 16 chars of hash)
-      const crypto = require('crypto');
-      const campaignIdHash = crypto.createHash('sha256').update(data.campaignId).digest();
-      const shortCampaignId = campaignIdHash.toString('hex').substring(0, 16); // 16 chars max
-
-      // Use a shorter semester_id for the blockchain program (first 20 chars of hash)
-      const semesterHash = crypto.createHash('sha256').update(data.semester).digest();
-      const shortSemesterId = semesterHash.toString('hex').substring(0, 20); // 20 chars max (blockchain limit)
-
-      await this.program.methods
-        .createCampaign(
-          shortCampaignId,
-          shortSemesterId,
-          data.campaignType,
-          data.blindSignaturePublicKey,
-          data.encryptionPublicKey
-        )
-        .accounts({
-          campaign: campaignPda,
-          authority: this.authority.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .rpc();
-
-      return campaignPda.toString();
-    } catch (error: any) {
-      throw new Error(`Failed to create campaign: ${error.message}`);
-    }
-  }
-
-  /**
-   * Submit batch responses to a campaign
-   * @param {string} campaignId - Campaign ID
-   * @param {Buffer[]} commitments - Array of commitment hashes
-   * @param {Buffer[]} encryptedResponses - Array of encrypted responses
+   * Initialize a campaign on blockchain (NEW SMART CONTRACT)
+   * Only stores campaign ID, Merkle roots added later
+   *
+   * @param {string} campaignId - Campaign ID (max 50 chars)
    * @returns {Promise<string>} Transaction signature
    */
-  async submitBatchResponses(
-    campaignId: string,
-    commitments: Buffer[],
-    encryptedResponses: Buffer[]
-  ): Promise<string> {
+  async initializeCampaign(campaignId: string): Promise<string> {
     try {
-      const campaignPda = this.getCampaignPDAWithShortId(campaignId);
+      const campaignPda = this.getCampaignPDA(campaignId);
 
-      // Convert buffers to byte arrays
-      const commitmentArrays = commitments.map(commitment => Array.from(commitment));
-      const responseArrays = encryptedResponses.map(response => Array.from(response));
+      // Use the first 8 characters of campaign ID as a shortened version
+      // This keeps it human-readable while fitting in the 32-byte seed limit
+      const shortCampaignId = campaignId.substring(0, 8);
 
       const signature = await this.program.methods
-        .submitBatchResponses(
-          commitmentArrays,
-          responseArrays
-        )
+        .initializeCampaign(shortCampaignId)
         .accounts({
           campaign: campaignPda,
-          authority: this.authority.publicKey,
+          admin: this.authority.publicKey,
           systemProgram: SystemProgram.programId,
         } as any)
         .rpc();
+
+      console.log(`✅ Campaign initialized on blockchain: ${campaignId}`);
+      console.log(`   Short ID: ${shortCampaignId}`);
+      console.log(`   PDA: ${campaignPda.toString()}`);
+      console.log(`   Signature: ${signature}`);
 
       return signature;
     } catch (error: any) {
-      throw new Error(`Failed to submit batch responses: ${error.message}`);
+      throw new Error(`Failed to initialize campaign: ${error.message}`);
     }
   }
 
   /**
-   * Publish campaign results with off-chain calculated Merkle root
+   * Publish responses Merkle root (Tree #1)
+   * Called after collecting all responses off-chain
+   *
    * @param {string} campaignId - Campaign ID
-   * @param {string} merkleRoot - Off-chain calculated Merkle root (hex string)
+   * @param {string} merkleRoot - Merkle root as hex string (must be 32 bytes)
+   * @param {number} totalResponses - Total number of responses
    * @returns {Promise<string>} Transaction signature
    */
-  async publishCampaignResults(
+  async publishResponsesMerkleRoot(
     campaignId: string,
-    merkleRoot: string
+    merkleRoot: string,
+    totalResponses: number
   ): Promise<string> {
     try {
-      const campaignPda = this.getCampaignPDAWithShortId(campaignId);
+      const campaignPda = this.getCampaignPDA(campaignId);
 
-      // Convert hex string to byte array
+      // Convert hex string to [u8; 32]
       const merkleRootBytes = Buffer.from(merkleRoot, 'hex');
+      if (merkleRootBytes.length !== 32) {
+        throw new Error(`Merkle root must be 32 bytes, got ${merkleRootBytes.length}`);
+      }
 
       const signature = await this.program.methods
-        .publishCampaignResults(
-          Array.from(merkleRootBytes)
+        .publishResponsesMerkleRoot(
+          Array.from(merkleRootBytes),
+          totalResponses
         )
         .accounts({
           campaign: campaignPda,
-          authority: this.authority.publicKey,
-          systemProgram: SystemProgram.programId,
+          admin: this.authority.publicKey,
         } as any)
         .rpc();
 
+      console.log(`✅ Responses Merkle root published for campaign: ${campaignId}`);
+      console.log(`   Root: ${merkleRoot}`);
+      console.log(`   Total responses: ${totalResponses}`);
+      console.log(`   Signature: ${signature}`);
+
       return signature;
     } catch (error: any) {
-      throw new Error(`Failed to publish campaign results: ${error.message}`);
+      throw new Error(`Failed to publish responses Merkle root: ${error.message}`);
     }
   }
 
   /**
-   * Update final Merkle root (university performance)
-   * @param {string} finalMerkleRoot - Final Merkle root from all campaign roots (hex string)
-   * @param {string} universityId - University identifier
+   * Update claimed receipts Merkle root (Tree #2)
+   * Can be called multiple times for batched updates
+   *
+   * @param {string} campaignId - Campaign ID
+   * @param {string} merkleRoot - Merkle root as hex string (must be 32 bytes)
+   * @param {number} claimedCount - Total number of claimed receipts
    * @returns {Promise<string>} Transaction signature
    */
-  async updateFinalMerkleRoot(finalMerkleRoot: string, universityId: string = 'international_university'): Promise<string> {
+  async updateClaimedReceiptsRoot(
+    campaignId: string,
+    merkleRoot: string,
+    claimedCount: number
+  ): Promise<string> {
     try {
-      const [universityPerformancePda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('university_performance'), Buffer.from(universityId)],
-        this.program.programId
-      );
+      const campaignPda = this.getCampaignPDA(campaignId);
 
-      // Convert hex string to byte array
-      const finalRootBytes = Buffer.from(finalMerkleRoot, 'hex');
+      // Convert hex string to [u8; 32]
+      const merkleRootBytes = Buffer.from(merkleRoot, 'hex');
+      if (merkleRootBytes.length !== 32) {
+        throw new Error(`Merkle root must be 32 bytes, got ${merkleRootBytes.length}`);
+      }
 
       const signature = await this.program.methods
-        .updateFinalMerkleRoot(Array.from(finalRootBytes))
+        .updateClaimedReceiptsRoot(
+          Array.from(merkleRootBytes),
+          claimedCount
+        )
         .accounts({
-          finalRoot: universityPerformancePda,
-          authority: this.authority.publicKey,
-          systemProgram: SystemProgram.programId,
+          campaign: campaignPda,
+          admin: this.authority.publicKey,
         } as any)
         .rpc();
 
+      console.log(`✅ Claimed receipts root updated for campaign: ${campaignId}`);
+      console.log(`   Root: ${merkleRoot}`);
+      console.log(`   Total claimed: ${claimedCount}`);
+      console.log(`   Signature: ${signature}`);
+
       return signature;
     } catch (error: any) {
-      throw new Error(`Failed to update final Merkle root: ${error.message}`);
+      throw new Error(`Failed to update claimed receipts root: ${error.message}`);
     }
   }
 
   /**
-   * Get campaign data from blockchain
+   * Close campaign on blockchain (prevents further updates)
+   *
    * @param {string} campaignId - Campaign ID
-   * @returns {Promise<Object>} Campaign data
+   * @returns {Promise<string>} Transaction signature
+   */
+  async closeCampaign(campaignId: string): Promise<string> {
+    try {
+      const campaignPda = this.getCampaignPDA(campaignId);
+
+      const signature = await this.program.methods
+        .closeCampaign()
+        .accounts({
+          campaign: campaignPda,
+          admin: this.authority.publicKey,
+        } as any)
+        .rpc();
+
+      console.log(`✅ Campaign closed on blockchain: ${campaignId}`);
+      console.log(`   Signature: ${signature}`);
+
+      return signature;
+    } catch (error: any) {
+      throw new Error(`Failed to close campaign: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get campaign data from blockchain (NEW STRUCT)
+   * @param {string} campaignId - Campaign ID
+   * @returns {Promise<Object>} Campaign data with both Merkle roots
    */
   async getCampaign(campaignId: string) {
     try {
-      const campaignPda = this.getCampaignPDAWithShortId(campaignId);
+      const campaignPda = this.getCampaignPDA(campaignId);
 
-      const campaign = await this.program.account.surveyCampaign.fetch(campaignPda);
+      // Note: struct name changed from surveyCampaign → campaign
+      const campaign = await this.program.account.campaign.fetch(campaignPda);
       return campaign;
     } catch (error: any) {
       throw new Error(`Failed to get campaign: ${error.message}`);
     }
   }
 
-  /**
-   * Get university performance data from blockchain
-   * @param {string} universityId - University identifier
-   * @returns {Promise<Object>} University performance data
-   */
-  async getUniversityPerformance(universityId: string = 'international_university') {
-    try {
-      const [universityPerformancePda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('university_performance'), Buffer.from(universityId)],
-        this.program.programId
-      );
-
-      const universityPerformance = await this.program.account.universityPerformance.fetch(universityPerformancePda);
-      return universityPerformance;
-    } catch (error: any) {
-      throw new Error(`Failed to get university performance: ${error.message}`);
-    }
-  }
-
   // ============================================================================
   // UTILITY METHODS
   // ============================================================================
-
-  /**
-   * Get campaign PDA address
-   * @param {string} campaignId - Campaign ID
-   * @returns {PublicKey} Campaign PDA
-   */
-  getCampaignPDA(campaignId: string): PublicKey {
-    return this.getCampaignPDAWithShortId(campaignId);
-  }
-
-  /**
-   * Get university performance PDA address
-   * @param {string} universityId - University identifier
-   * @returns {PublicKey} University performance PDA
-   */
-  getUniversityPerformancePDA(universityId: string = 'university_001'): PublicKey {
-    const [universityPerformancePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('university_performance'), Buffer.from(universityId)],
-      this.program.programId
-    );
-    return universityPerformancePda;
-  }
 
   /**
    * Check if campaign exists on blockchain
@@ -358,20 +306,6 @@ export class BlockchainService {
   async campaignExists(campaignId: string): Promise<boolean> {
     try {
       await this.getCampaign(campaignId);
-      return true;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  /**
-   * Check if university performance account exists on blockchain
-   * @param {string} universityId - University identifier
-   * @returns {Promise<boolean>} True if account exists
-   */
-  async universityPerformanceExists(universityId: string = 'international_university'): Promise<boolean> {
-    try {
-      await this.getUniversityPerformance(universityId);
       return true;
     } catch (error) {
       return false;

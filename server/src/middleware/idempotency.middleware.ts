@@ -25,6 +25,12 @@ export const idempotencyMiddleware = async (
   }
 
   try {
+    // Skip idempotency check if Redis is not available
+    if (!redisClient) {
+      req.idempotencyKey = idempotencyKey;
+      return next();
+    }
+
     // Check if we've already processed this request
     const existingResponse = await redisClient.get(`idempotency:${idempotencyKey}`);
     
@@ -57,6 +63,9 @@ export const cacheIdempotentResponse = async (
   data: any
 ) => {
   try {
+    if (!redisClient) {
+      return; // Skip caching if Redis is not available
+    }
     const response = JSON.stringify({ status, data });
     await redisClient.setEx(`idempotency:${idempotencyKey}`, 86400, response);
   } catch (error) {
