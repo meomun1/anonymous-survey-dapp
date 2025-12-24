@@ -6,303 +6,255 @@ declare_id!("mNtgDCdiUe415LDYWgD1n8zuLiPVmgqSdbUL1zHtaLq");
 pub mod anonymous_survey {
     use super::*;
 
-    pub fn create_campaign(
-        ctx: Context<CreateCampaign>,
+    /// Initialize a new campaign on blockchain
+    /// Called by admin when creating a campaign in the database
+    pub fn initialize_campaign(
+        ctx: Context<InitializeCampaign>,
         campaign_id: String,
-        semester: String,
-        campaign_type: u8,
-        blind_signature_public_key: Vec<u8>,
-        encryption_public_key: Vec<u8>,
     ) -> Result<()> {
-        // Requirements
         require!(campaign_id.len() <= 50, CampaignError::CampaignIdTooLong);
-        require!(semester.len() <= 20, CampaignError::SemesterTooLong);
-        require!(campaign_type <= 1, CampaignError::InvalidCampaignType); // 0 = Course, 1 = Event
-        require!(
-            blind_signature_public_key.len() <= 300,
-            CampaignError::PublicKeyTooLong
-        );
-        require!(
-            encryption_public_key.len() <= 300,
-            CampaignError::PublicKeyTooLong
-        );
 
-        // Init campaign
         let campaign = &mut ctx.accounts.campaign;
-        campaign.authority = ctx.accounts.authority.key();
-        campaign.campaign_id = campaign_id;
-        campaign.semester = semester;
-        campaign.campaign_type = campaign_type;
+        campaign.admin = ctx.accounts.admin.key();
+        campaign.campaign_id = campaign_id.clone();
+        campaign.responses_merkle_root = None;
         campaign.total_responses = 0;
+        campaign.claimed_receipts_root = None;
+        campaign.claimed_count = 0;
+        campaign.is_closed = false;
         campaign.created_at = Clock::get()?.unix_timestamp;
         campaign.updated_at = Clock::get()?.unix_timestamp;
-        campaign.is_published = false;
-        campaign.merkle_root = [0; 32];
-        campaign.encrypted_responses = Vec::new();
-        campaign.commitments = Vec::new();
-        campaign.blind_signature_public_key = blind_signature_public_key;
-        campaign.encryption_public_key = encryption_public_key;
+
+        emit!(CampaignInitialized {
+            campaign_id,
+            admin: campaign.admin,
+            timestamp: campaign.created_at,
+        });
+
         Ok(())
     }
 
-    pub fn submit_batch_responses(
-        ctx: Context<SubmitBatchResponses>,
-        commitments: Vec<[u8; 32]>,
-        encrypted_responses: Vec<[u8; 256]>,
+    /// Publish responses Merkle root (Merkle Tree #1)
+    /// Called by admin after collecting all responses off-chain
+    /// Server calculates Merkle root from response commitments in database
+    pub fn publish_responses_merkle_root(
+        ctx: Context<PublishResponsesRoot>,
+        merkle_root: [u8; 32],
+        total_responses: u32,
     ) -> Result<()> {
         let campaign = &mut ctx.accounts.campaign;
 
-        // Check if campaign is already published
+        // Only admin can publish
         require!(
-            !campaign.is_published,
-            CampaignError::CampaignAlreadyPublished
-        );
-
-        // Only authority can submit batch responses
-        require!(
-            campaign.authority == ctx.accounts.authority.key(),
+            ctx.accounts.admin.key() == campaign.admin,
             CampaignError::Unauthorized
         );
 
-        // Verify commitments and encrypted responses have same length
+        // Cannot publish if already closed
+        require!(!campaign.is_closed, CampaignError::CampaignClosed);
+
+        // Cannot publish if already published
         require!(
-            commitments.len() == encrypted_responses.len(),
-            CampaignError::MismatchedDataLength
+            campaign.responses_merkle_root.is_none(),
+            CampaignError::AlreadyPublished
         );
 
-        // Add all commitments and encrypted responses
-        let response_count = encrypted_responses.len() as u32;
-        campaign.commitments.extend(commitments);
-        campaign.encrypted_responses.extend(encrypted_responses);
-        campaign.total_responses = campaign
-            .total_responses
-            .checked_add(response_count)
-            .unwrap();
+        // Must have responses
+        require!(total_responses > 0, CampaignError::NoResponses);
+
+        campaign.responses_merkle_root = Some(merkle_root);
+        campaign.total_responses = total_responses;
         campaign.updated_at = Clock::get()?.unix_timestamp;
+
+        emit!(ResponsesMerkleRootPublished {
+            campaign_id: campaign.campaign_id.clone(),
+            merkle_root,
+            total_responses,
+            timestamp: campaign.updated_at,
+        });
 
         Ok(())
     }
 
-    pub fn publish_campaign_results(
-        ctx: Context<PublishCampaignResults>,
-        merkle_root: [u8; 32], // Calculated off-chain by server from commitments
+    /// Update claimed receipts Merkle root (Merkle Tree #2)
+    /// Called by admin periodically to batch-publish new claims
+    /// Server calculates Merkle root from receipt hashes in database
+    pub fn update_claimed_receipts_root(
+        ctx: Context<UpdateClaimedReceipts>,
+        merkle_root: [u8; 32],
+        claimed_count: u32,
     ) -> Result<()> {
         let campaign = &mut ctx.accounts.campaign;
 
-        // Only authority can publish results
+        // Only admin can update
         require!(
-            campaign.authority == ctx.accounts.authority.key(),
+            ctx.accounts.admin.key() == campaign.admin,
             CampaignError::Unauthorized
         );
 
-        // Verify campaign is not already published
-        require!(
-            !campaign.is_published,
-            CampaignError::CampaignAlreadyPublished
-        );
+        // Cannot update if closed
+        require!(!campaign.is_closed, CampaignError::CampaignClosed);
 
-        // Verify we have responses to publish
-        require!(
-            campaign.total_responses > 0,
-            CampaignError::NoResponsesSubmitted
-        );
-
-        // Store the off-chain calculated Merkle root (from commitments)
-        campaign.merkle_root = merkle_root;
-        campaign.is_published = true;
+        // Update Merkle root and count
+        campaign.claimed_receipts_root = Some(merkle_root);
+        campaign.claimed_count = claimed_count;
         campaign.updated_at = Clock::get()?.unix_timestamp;
 
-        // Clear encrypted responses to free up space (keep commitments)
-        campaign.encrypted_responses.clear();
+        emit!(ClaimedReceiptsRootUpdated {
+            campaign_id: campaign.campaign_id.clone(),
+            merkle_root,
+            claimed_count,
+            timestamp: campaign.updated_at,
+        });
 
         Ok(())
     }
 
-    pub fn update_final_merkle_root(
-        ctx: Context<UpdateFinalMerkleRoot>,
-        final_merkle_root: [u8; 32], // Calculated off-chain from all campaign roots
-    ) -> Result<()> {
-        let final_root = &mut ctx.accounts.final_root;
+    /// Close campaign (prevents further updates)
+    /// Called by admin when campaign is complete
+    pub fn close_campaign(ctx: Context<CloseCampaign>) -> Result<()> {
+        let campaign = &mut ctx.accounts.campaign;
 
-        // Only authority can update final root
+        // Only admin can close
         require!(
-            final_root.authority == ctx.accounts.authority.key(),
+            ctx.accounts.admin.key() == campaign.admin,
             CampaignError::Unauthorized
         );
 
-        // Update the final Merkle root (calculated off-chain from all campaign roots)
-        final_root.final_merkle_root = final_merkle_root;
-        final_root.updated_at = Clock::get()?.unix_timestamp;
+        // Cannot close if already closed
+        require!(!campaign.is_closed, CampaignError::CampaignClosed);
 
-        Ok(())
-    }
+        campaign.is_closed = true;
+        campaign.updated_at = Clock::get()?.unix_timestamp;
 
-    pub fn initialize_final_root(
-        ctx: Context<InitializeFinalRoot>,
-        university_id: String,
-    ) -> Result<()> {
-        let final_root = &mut ctx.accounts.final_root;
-
-        final_root.authority = ctx.accounts.authority.key();
-        final_root.university_id = university_id;
-        final_root.total_campaigns = 0;
-        final_root.created_at = Clock::get()?.unix_timestamp;
-        final_root.updated_at = Clock::get()?.unix_timestamp;
-        final_root.final_merkle_root = [0; 32]; // Will be calculated off-chain
+        emit!(CampaignClosed {
+            campaign_id: campaign.campaign_id.clone(),
+            timestamp: campaign.updated_at,
+        });
 
         Ok(())
     }
 }
 
+// ============================================================================
+// ACCOUNT CONTEXTS
+// ============================================================================
+
 #[derive(Accounts)]
-#[instruction(campaign_id: String, semester: String)]
-pub struct CreateCampaign<'info> {
+#[instruction(campaign_id: String)]
+pub struct InitializeCampaign<'info> {
     #[account(
         init,
-        payer = authority,
-        space = 8 + SurveyCampaign::calculate_size_for_responses(30), // Pre-allocate space for 10 responses
-        seeds = [b"campaign", authority.key().as_ref(), campaign_id.as_bytes()],
+        payer = admin,
+        space = 8 + Campaign::LEN,
+        seeds = [b"campaign", campaign_id.as_bytes()],
         bump
     )]
-    pub campaign: Account<'info, SurveyCampaign>,
+    pub campaign: Account<'info, Campaign>,
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub admin: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct SubmitBatchResponses<'info> {
+pub struct PublishResponsesRoot<'info> {
     #[account(mut)]
-    pub campaign: Account<'info, SurveyCampaign>,
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    pub system_program: Program<'info, System>,
+    pub campaign: Account<'info, Campaign>,
+    pub admin: Signer<'info>,
 }
 
 #[derive(Accounts)]
-pub struct PublishCampaignResults<'info> {
+pub struct UpdateClaimedReceipts<'info> {
     #[account(mut)]
-    pub campaign: Account<'info, SurveyCampaign>,
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    pub system_program: Program<'info, System>,
+    pub campaign: Account<'info, Campaign>,
+    pub admin: Signer<'info>,
 }
 
 #[derive(Accounts)]
-#[instruction(university_id: String)]
-pub struct InitializeFinalRoot<'info> {
-    #[account(
-        init,
-        payer = authority,
-        space = 8 + UniversityPerformance::LEN,
-        seeds = [b"university_performance", university_id.as_bytes()],
-        bump
-    )]
-    pub final_root: Account<'info, UniversityPerformance>,
+pub struct CloseCampaign<'info> {
     #[account(mut)]
-    pub authority: Signer<'info>,
-    pub system_program: Program<'info, System>,
+    pub campaign: Account<'info, Campaign>,
+    pub admin: Signer<'info>,
 }
 
-#[derive(Accounts)]
-pub struct UpdateFinalMerkleRoot<'info> {
-    #[account(mut)]
-    pub final_root: Account<'info, UniversityPerformance>,
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
+// ============================================================================
+// ACCOUNT STRUCTURES
+// ============================================================================
 
 #[account]
-pub struct SurveyCampaign {
-    pub authority: Pubkey,
+pub struct Campaign {
+    pub admin: Pubkey,                              // 32 bytes
+    pub campaign_id: String,                        // 4 + 50 = 54 bytes
+    pub responses_merkle_root: Option<[u8; 32]>,    // 1 + 32 = 33 bytes (Merkle Tree #1)
+    pub total_responses: u32,                       // 4 bytes
+    pub claimed_receipts_root: Option<[u8; 32]>,    // 1 + 32 = 33 bytes (Merkle Tree #2)
+    pub claimed_count: u32,                         // 4 bytes
+    pub is_closed: bool,                            // 1 byte
+    pub created_at: i64,                            // 8 bytes
+    pub updated_at: i64,                            // 8 bytes
+}
+
+impl Campaign {
+    // Fixed account size calculation
+    pub const LEN: usize = 32 +      // admin: Pubkey
+        4 + 50 +  // campaign_id: String (4 bytes length + max 50 chars)
+        1 + 32 +  // responses_merkle_root: Option<[u8; 32]>
+        4 +       // total_responses: u32
+        1 + 32 +  // claimed_receipts_root: Option<[u8; 32]>
+        4 +       // claimed_count: u32
+        1 +       // is_closed: bool
+        8 +       // created_at: i64
+        8;        // updated_at: i64
+                  // TOTAL: 177 bytes (fixed size!)
+}
+
+// ============================================================================
+// EVENTS
+// ============================================================================
+
+#[event]
+pub struct CampaignInitialized {
     pub campaign_id: String,
-    pub semester: String,
-    pub campaign_type: u8, // 0 = Course, 1 = Event
+    pub admin: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct ResponsesMerkleRootPublished {
+    pub campaign_id: String,
+    pub merkle_root: [u8; 32],
     pub total_responses: u32,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub is_published: bool,
-    pub merkle_root: [u8; 32], // Calculated off-chain during publishing
-    pub encrypted_responses: Vec<[u8; 256]>, // RSA-2048 encrypted responses (cleared after publishing)
-    pub commitments: Vec<[u8; 32]>,          // Hash commitments (kept after publishing)
-    pub blind_signature_public_key: Vec<u8>, // RSA public key for blind signatures (~294 bytes)
-    pub encryption_public_key: Vec<u8>,      // RSA public key for encryption (~294 bytes)
+    pub timestamp: i64,
 }
 
-#[account]
-pub struct UniversityPerformance {
-    pub authority: Pubkey,
-    pub university_id: String,
-    pub total_campaigns: u32,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub final_merkle_root: [u8; 32], // Root of all campaign roots (calculated off-chain)
+#[event]
+pub struct ClaimedReceiptsRootUpdated {
+    pub campaign_id: String,
+    pub merkle_root: [u8; 32],
+    pub claimed_count: u32,
+    pub timestamp: i64,
 }
 
-impl SurveyCampaign {
-    // Base size without dynamic vectors
-    pub const BASE_LEN: usize = 32 +        // authority: Pubkey
-        4 + 50 +    // campaign_id: String (4 bytes length + 50 chars)
-        4 + 20 +    // semester: String (4 bytes length + 20 chars)
-        1 +         // campaign_type: u8
-        4 +         // total_responses: u32
-        8 +         // created_at: i64
-        8 +         // updated_at: i64
-        1 +         // is_published: bool
-        32 +        // merkle_root: [u8; 32]
-        4 +         // encrypted_responses: Vec header
-        4 +         // commitments: Vec header
-        4 + 300 +   // blind_signature_public_key: Vec<u8> (4 bytes length + 300 bytes)
-        4 + 300; // encryption_public_key: Vec<u8> (4 bytes length + 300 bytes)
-                 // TOTAL: 772 bytes base
-
-    // Calculate total size for a given number of responses
-    pub fn calculate_size_for_responses(num_responses: u32) -> usize {
-        Self::BASE_LEN + (num_responses as usize * (256 + 32)) // 256 for encrypted_response + 32 for commitment
-    }
-
-    // Calculate size after publishing (no encrypted responses, only commitments)
-    pub fn calculate_size_after_publishing(num_responses: u32) -> usize {
-        Self::BASE_LEN + (num_responses as usize * 32) // Only commitments remain (32 bytes each)
-    }
-
-    // Initial size with 0 responses
-    pub const LEN: usize = Self::BASE_LEN;
+#[event]
+pub struct CampaignClosed {
+    pub campaign_id: String,
+    pub timestamp: i64,
 }
 
-impl UniversityPerformance {
-    // Base size for UniversityPerformance account
-    pub const BASE_LEN: usize = 32 +        // authority: Pubkey
-        4 + 50 +    // university_id: String (4 bytes length + 50 chars)
-        4 +         // total_campaigns: u32
-        8 +         // created_at: i64
-        8 +         // updated_at: i64
-        32; // final_merkle_root: [u8; 32]
-
-    // Fixed size for UniversityPerformance account (no dynamic vectors)
-    pub const LEN: usize = Self::BASE_LEN;
-}
+// ============================================================================
+// ERRORS
+// ============================================================================
 
 #[error_code]
 pub enum CampaignError {
-    #[msg("Campaign is already published")]
-    CampaignAlreadyPublished,
-    #[msg("Campaign ID is too long")]
+    #[msg("Campaign ID is too long (max 50 characters)")]
     CampaignIdTooLong,
-    #[msg("Semester is too long")]
-    SemesterTooLong,
-    #[msg("Invalid campaign type")]
-    InvalidCampaignType,
-    #[msg("Public key is too long")]
-    PublicKeyTooLong,
-    #[msg("Unauthorized")]
+    #[msg("Unauthorized: Only admin can perform this action")]
     Unauthorized,
-    #[msg("No responses submitted")]
-    NoResponsesSubmitted,
-    #[msg("Mismatched data length")]
-    MismatchedDataLength,
+    #[msg("Campaign is closed and cannot be modified")]
+    CampaignClosed,
+    #[msg("Responses Merkle root already published")]
+    AlreadyPublished,
+    #[msg("No responses to publish")]
+    NoResponses,
 }
-
-// Note: Merkle root calculation is now done off-chain on the server
-// to avoid Solana compute limits for large numbers of responses (34,000+)

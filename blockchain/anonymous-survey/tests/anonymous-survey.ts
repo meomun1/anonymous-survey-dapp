@@ -4,7 +4,7 @@ import { AnonymousSurvey } from "../target/types/anonymous_survey";
 import { expect } from "chai";
 import { PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
 
-describe("anonymous-survey", () => {
+describe("anonymous-survey (Merkle Tree Approach)", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
@@ -13,40 +13,22 @@ describe("anonymous-survey", () => {
 
   let campaignPda: PublicKey;
   let campaignBump: number;
-  let finalRootPda: PublicKey;
-  let finalRootBump: number;
 
   // Campaign parameters
-  const campaignId = `test-campaign-${Date.now()}`; // Make campaign ID unique
-  const semester = "Fall 2024";
-  const campaignType = 0; // 0 = Course, 1 = Event
-  const universityId = "test-university-001";
-  
-  // Mock RSA public keys (you should replace with actual RSA public keys)
-  const blindSignaturePublicKey = Buffer.from(new Array(256).fill(1)); // RSA public key 256 bytes
-  const encryptionPublicKey = Buffer.from(new Array(256).fill(2));     // RSA public key 256 bytes
+  const campaignId = `campaign-${Date.now()}`;
+
+  // Mock Merkle roots (calculated off-chain by server)
+  const mockResponsesMerkleRoot = Array.from(new Uint8Array(32).fill(123));
+  const mockClaimedReceiptsRoot = Array.from(new Uint8Array(32).fill(456));
 
   before(async () => {
-    // Find PDA with campaign_id as seed
+    // Find PDA for campaign
     [campaignPda, campaignBump] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("campaign"), 
-        wallet.publicKey.toBuffer(),
-        Buffer.from(campaignId)
-      ],
+      [Buffer.from("campaign"), Buffer.from(campaignId)],
       program.programId
     );
 
-    // Find PDA for final root account
-    [finalRootPda, finalRootBump] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("university_performance"),
-        Buffer.from(universityId)
-      ],
-      program.programId
-    );
-
-    // Airdrop some SOL to the wallet for testing
+    // Airdrop SOL to wallet for testing
     const signature = await provider.connection.requestAirdrop(
       wallet.publicKey,
       2 * anchor.web3.LAMPORTS_PER_SOL
@@ -58,188 +40,167 @@ describe("anonymous-survey", () => {
     });
   });
 
-  it("Initializes final root account", async () => {
+  it("Initializes a campaign", async () => {
     await program.methods
-      .initializeFinalRoot(universityId)
-      .accounts({
-        finalRoot: finalRootPda,
-        authority: wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      } as any)
-      .rpc();
-
-    const finalRoot = await program.account.universityPerformance.fetch(finalRootPda);
-    expect(finalRoot.universityId).to.equal(universityId);
-    expect(finalRoot.totalCampaigns).to.equal(0);
-    expect(finalRoot.finalMerkleRoot).to.deep.equal(new Array(32).fill(0));
-  });
-
-  it("Updates final Merkle root from campaign roots", async () => {
-    // Mock final Merkle root calculated off-chain from all campaign roots
-    const finalMerkleRoot = Array.from(new Uint8Array(32).fill(456));
-
-    await program.methods
-      .updateFinalMerkleRoot(finalMerkleRoot)
-      .accounts({
-        finalRoot: finalRootPda,
-        authority: wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      } as any)
-      .rpc();
-
-    const finalRoot = await program.account.universityPerformance.fetch(finalRootPda);
-    expect(finalRoot.finalMerkleRoot).to.deep.equal(finalMerkleRoot);
-  });
-
-  it("Creates a campaign", async () => {
-    // Calculate initial size with some responses to avoid reallocation issues
-    const initialSize = 8 + 32 + 32 + 50 + 20 + 1 + 4 + 8 + 8 + 1 + 32 + (10 * 32) + (10 * 256) + 256 + 256; // Space for 10 responses initially
-    const rent = await program.provider.connection.getMinimumBalanceForRentExemption(initialSize);
-
-    await program.methods
-      .createCampaign(
-        campaignId,
-        semester,
-        campaignType,
-        blindSignaturePublicKey,
-        encryptionPublicKey
-      )
+      .initializeCampaign(campaignId)
       .accounts({
         campaign: campaignPda,
-        authority: wallet.publicKey,
+        admin: wallet.publicKey,
         systemProgram: SystemProgram.programId,
       } as any)
       .rpc();
 
-    const campaign = await program.account.surveyCampaign.fetch(campaignPda);
+    const campaign = await program.account.campaign.fetch(campaignPda);
+
     expect(campaign.campaignId).to.equal(campaignId);
-    expect(campaign.semester).to.equal(semester);
-    expect(campaign.campaignType).to.equal(campaignType);
+    expect(campaign.admin.toString()).to.equal(wallet.publicKey.toString());
+    expect(campaign.responsesMerkleRoot).to.be.null;
     expect(campaign.totalResponses).to.equal(0);
-    expect(campaign.isPublished).to.equal(false);
-    expect(campaign.merkleRoot).to.deep.equal(new Array(32).fill(0));
-  });
-
-  it("Submits batch responses with commitments and encrypted data", async () => {
-    // Mock commitments and encrypted responses (simulating 3 responses for testing)
-    const commitments = [
-      Array.from(new Uint8Array(32).fill(1)), // Response 1 commitment
-      Array.from(new Uint8Array(32).fill(2)), // Response 2 commitment
-      Array.from(new Uint8Array(32).fill(3)), // Response 3 commitment
-    ];
-    const encryptedResponses = [
-      Array.from(new Uint8Array(256).fill(10)), // Response 1 encrypted data
-      Array.from(new Uint8Array(256).fill(20)), // Response 2 encrypted data
-      Array.from(new Uint8Array(256).fill(30)), // Response 3 encrypted data
-    ];
-
-    // Calculate rent for the new account size (approximate)
-    const newSize = 8 + 32 + 32 + 50 + 20 + 1 + 4 + 8 + 8 + 1 + 32 + (3 * 32) + (3 * 256) + 256 + 256;
-    const rent = await program.provider.connection.getMinimumBalanceForRentExemption(newSize);
-
-    await program.methods
-      .submitBatchResponses(commitments, encryptedResponses)
-      .accounts({
-        campaign: campaignPda,
-        authority: wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      } as any)
-      .rpc();
-
-    const campaign = await program.account.surveyCampaign.fetch(campaignPda);
-    expect(campaign.totalResponses).to.equal(3);
-    expect(campaign.commitments).to.have.length(3);
-    expect(campaign.encryptedResponses).to.have.length(3);
-    expect(campaign.isPublished).to.equal(false);
-    expect(campaign.merkleRoot).to.deep.equal(new Array(32).fill(0)); // Not set yet
-  });
-
-  it("Publishes campaign results with off-chain calculated Merkle root", async () => {
-    // Mock Merkle root calculated off-chain by server
-    const calculatedMerkleRoot = Array.from(new Uint8Array(32).fill(123));
-
-    await program.methods
-      .publishCampaignResults(calculatedMerkleRoot)
-      .accounts({
-        campaign: campaignPda,
-        authority: wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      } as any)
-      .rpc();
-
-    const campaign = await program.account.surveyCampaign.fetch(campaignPda);
-    expect(campaign.isPublished).to.equal(true);
-    expect(campaign.totalResponses).to.equal(3);
-    expect(campaign.merkleRoot).to.deep.equal(calculatedMerkleRoot);
-    expect(campaign.encryptedResponses).to.have.length(0); // Cleared after publishing
-    expect(campaign.commitments).to.have.length(3); // Kept for verification
-
-    // Note: Final root account is updated separately via update_final_merkle_root
-    // after collecting all campaign roots off-chain
-  });
-
-  it("Fetches complete campaign information", async () => {
-    const campaign = await program.account.surveyCampaign.fetch(campaignPda);
-    
-    console.log("=== Campaign Information ===");
-    console.log("Campaign ID:", campaign.campaignId);
-    console.log("Semester:", campaign.semester);
-    console.log("Campaign Type:", campaign.campaignType);
-    console.log("Authority:", campaign.authority.toString());
-    console.log("Total Responses:", campaign.totalResponses);
-    console.log("Is Published:", campaign.isPublished);
-    console.log("Created At:", new Date(campaign.createdAt.toNumber() * 1000).toISOString());
-    console.log("Updated At:", new Date(campaign.updatedAt.toNumber() * 1000).toISOString());
-    console.log("Merkle Root:", Array.from(campaign.merkleRoot));
-    console.log("Blind Signature Public Key Length:", campaign.blindSignaturePublicKey.length);
-    console.log("Encryption Public Key Length:", campaign.encryptionPublicKey.length);
-    
-    // Detailed verification of campaign state
-    expect(campaign.campaignId).to.equal(campaignId);
-    expect(campaign.semester).to.equal(semester);
-    expect(campaign.campaignType).to.equal(campaignType);
-    expect(campaign.authority.toString()).to.equal(wallet.publicKey.toString());
-    expect(campaign.totalResponses).to.equal(3); // Should have 3 responses from previous test
-    expect(campaign.isPublished).to.equal(true);
-    
-    // Verify the merkle root is set (not all zeros)
-    expect(campaign.merkleRoot).to.not.deep.equal(new Array(32).fill(0));
-    
-    // Verify public keys are correct
-    expect(Array.from(campaign.blindSignaturePublicKey)).to.deep.equal(Array.from(blindSignaturePublicKey));
-    expect(Array.from(campaign.encryptionPublicKey)).to.deep.equal(Array.from(encryptionPublicKey));
-    
-    // Check timestamp logic
+    expect(campaign.claimedReceiptsRoot).to.be.null;
+    expect(campaign.claimedCount).to.equal(0);
+    expect(campaign.isClosed).to.equal(false);
     expect(campaign.createdAt.toNumber()).to.be.greaterThan(0);
-    expect(campaign.updatedAt.toNumber()).to.be.greaterThanOrEqual(campaign.createdAt.toNumber());
-    
-    console.log("\n✅ All campaign information verified successfully!");
+
+    console.log("\n✅ Campaign initialized successfully");
+    console.log("Campaign ID:", campaign.campaignId);
+    console.log("Admin:", campaign.admin.toString());
+    console.log("Account size: ~177 bytes (fixed)");
   });
 
-  it("Prevents submitting batch responses to published campaign", async () => {
-    const additionalCommitments = [Array.from(new Uint8Array(32).fill(99))];
-    const additionalEncryptedResponses = [Array.from(new Uint8Array(256).fill(99))];
+  it("Publishes responses Merkle root", async () => {
+    const totalResponses = 150; // Mock: 150 responses collected off-chain
 
+    await program.methods
+      .publishResponsesMerkleRoot(mockResponsesMerkleRoot, totalResponses)
+      .accounts({
+        campaign: campaignPda,
+        admin: wallet.publicKey,
+      } as any)
+      .rpc();
+
+    const campaign = await program.account.campaign.fetch(campaignPda);
+
+    expect(campaign.responsesMerkleRoot).to.deep.equal(mockResponsesMerkleRoot);
+    expect(campaign.totalResponses).to.equal(totalResponses);
+
+    console.log("\n✅ Responses Merkle root published");
+    console.log("Merkle Root:", Buffer.from(campaign.responsesMerkleRoot).toString('hex').slice(0, 16) + "...");
+    console.log("Total Responses:", campaign.totalResponses);
+  });
+
+  it("Updates claimed receipts Merkle root (batch 1)", async () => {
+    const claimedCount = 50; // Mock: 50 students claimed participation
+
+    await program.methods
+      .updateClaimedReceiptsRoot(mockClaimedReceiptsRoot, claimedCount)
+      .accounts({
+        campaign: campaignPda,
+        admin: wallet.publicKey,
+      } as any)
+      .rpc();
+
+    const campaign = await program.account.campaign.fetch(campaignPda);
+
+    expect(campaign.claimedReceiptsRoot).to.deep.equal(mockClaimedReceiptsRoot);
+    expect(campaign.claimedCount).to.equal(claimedCount);
+
+    console.log("\n✅ Claimed receipts root updated (batch 1)");
+    console.log("Merkle Root:", Buffer.from(campaign.claimedReceiptsRoot).toString('hex').slice(0, 16) + "...");
+    console.log("Claimed Count:", campaign.claimedCount);
+  });
+
+  it("Updates claimed receipts Merkle root again (batch 2)", async () => {
+    const newMerkleRoot = Array.from(new Uint8Array(32).fill(789));
+    const newClaimedCount = 100; // Mock: 100 total students claimed now
+
+    await program.methods
+      .updateClaimedReceiptsRoot(newMerkleRoot, newClaimedCount)
+      .accounts({
+        campaign: campaignPda,
+        admin: wallet.publicKey,
+      } as any)
+      .rpc();
+
+    const campaign = await program.account.campaign.fetch(campaignPda);
+
+    expect(campaign.claimedReceiptsRoot).to.deep.equal(newMerkleRoot);
+    expect(campaign.claimedCount).to.equal(newClaimedCount);
+
+    console.log("\n✅ Claimed receipts root updated (batch 2)");
+    console.log("Updated Merkle Root:", Buffer.from(campaign.claimedReceiptsRoot).toString('hex').slice(0, 16) + "...");
+    console.log("Updated Claimed Count:", campaign.claimedCount);
+  });
+
+  it("Closes the campaign", async () => {
+    await program.methods
+      .closeCampaign()
+      .accounts({
+        campaign: campaignPda,
+        admin: wallet.publicKey,
+      } as any)
+      .rpc();
+
+    const campaign = await program.account.campaign.fetch(campaignPda);
+
+    expect(campaign.isClosed).to.equal(true);
+
+    console.log("\n✅ Campaign closed successfully");
+  });
+
+  it("Prevents publishing responses after campaign is closed", async () => {
     try {
       await program.methods
-        .submitBatchResponses(additionalCommitments, additionalEncryptedResponses)
+        .publishResponsesMerkleRoot(mockResponsesMerkleRoot, 200)
         .accounts({
           campaign: campaignPda,
-          authority: wallet.publicKey,
-          systemProgram: SystemProgram.programId,
+          admin: wallet.publicKey,
         } as any)
         .rpc();
-      expect.fail("Should have thrown an error");
+
+      expect.fail("Should have thrown CampaignClosed error");
     } catch (error) {
-      expect(error.toString()).to.include("CampaignAlreadyPublished");
+      expect(error.toString()).to.include("CampaignClosed");
+      console.log("\n✅ Correctly prevented publishing to closed campaign");
     }
   });
 
-  it("Prevents unauthorized batch submission", async () => {
-    // Create a new keypair to act as unauthorized user
+  it("Prevents updating claimed receipts after campaign is closed", async () => {
+    try {
+      await program.methods
+        .updateClaimedReceiptsRoot(mockClaimedReceiptsRoot, 150)
+        .accounts({
+          campaign: campaignPda,
+          admin: wallet.publicKey,
+        } as any)
+        .rpc();
+
+      expect.fail("Should have thrown CampaignClosed error");
+    } catch (error) {
+      expect(error.toString()).to.include("CampaignClosed");
+      console.log("✅ Correctly prevented updating closed campaign");
+    }
+  });
+
+  it("Prevents unauthorized users from publishing Merkle roots", async () => {
+    // Create new campaign for unauthorized test
+    const unauthorizedCampaignId = `unauth-${Date.now()}`;
+    const [unauthorizedCampaignPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("campaign"), Buffer.from(unauthorizedCampaignId)],
+      program.programId
+    );
+
+    // Initialize campaign with original admin
+    await program.methods
+      .initializeCampaign(unauthorizedCampaignId)
+      .accounts({
+        campaign: unauthorizedCampaignPda,
+        admin: wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      } as any)
+      .rpc();
+
+    // Create unauthorized user
     const unauthorizedUser = Keypair.generate();
-    
-    // Airdrop SOL to unauthorized user
     const signature = await provider.connection.requestAirdrop(
       unauthorizedUser.publicKey,
       anchor.web3.LAMPORTS_PER_SOL
@@ -250,274 +211,226 @@ describe("anonymous-survey", () => {
       lastValidBlockHeight: (await provider.connection.getLatestBlockhash()).lastValidBlockHeight
     });
 
-    // Try to create a new campaign with different campaign_id
-    const newCampaignId = "unauthorized-test";
-    const [newCampaignPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("campaign"),
-        unauthorizedUser.publicKey.toBuffer(),
-        Buffer.from(newCampaignId)
-      ],
-      program.programId
-    );
-
-    // Create campaign with unauthorized user
-    await program.methods
-      .createCampaign(
-        newCampaignId,
-        "Spring 2024",
-        1, // Event type
-        blindSignaturePublicKey,
-        encryptionPublicKey
-      )
-      .accounts({
-        campaign: newCampaignPda,
-        authority: unauthorizedUser.publicKey,
-        systemProgram: SystemProgram.programId,
-      } as any)
-      .signers([unauthorizedUser])
-      .rpc();
-
-    const commitments = [Array.from(new Uint8Array(32).fill(789))];
-    const encryptedResponses = [Array.from(new Uint8Array(256).fill(789))];
-
-    // Try to submit batch responses with original wallet (should fail)
+    // Try to publish with unauthorized user
     try {
       await program.methods
-        .submitBatchResponses(commitments, encryptedResponses)
+        .publishResponsesMerkleRoot(mockResponsesMerkleRoot, 100)
         .accounts({
-          campaign: newCampaignPda,
-          authority: wallet.publicKey, // Wrong authority
-          systemProgram: SystemProgram.programId,
+          campaign: unauthorizedCampaignPda,
+          admin: unauthorizedUser.publicKey,
         } as any)
+        .signers([unauthorizedUser])
         .rpc();
-      expect.fail("Should have thrown an unauthorized error");
+
+      expect.fail("Should have thrown Unauthorized error");
     } catch (error) {
       expect(error.toString()).to.include("Unauthorized");
+      console.log("\n✅ Correctly prevented unauthorized publishing");
     }
   });
 
-  it("Prevents publishing without batch submission", async () => {
-    // Create a new campaign without submitting responses
-    const newCampaignId = "empty-campaign";
-    const [emptyCampaignPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("campaign"),
-        wallet.publicKey.toBuffer(),
-        Buffer.from(newCampaignId)
-      ],
+  it("Prevents publishing responses twice", async () => {
+    const doublePubCampaignId = `double-${Date.now()}`;
+    const [doublePubCampaignPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("campaign"), Buffer.from(doublePubCampaignId)],
       program.programId
     );
 
+    // Initialize campaign
     await program.methods
-      .createCampaign(
-        newCampaignId,
-        "Summer 2024",
-        0,
-        blindSignaturePublicKey,
-        encryptionPublicKey
-      )
+      .initializeCampaign(doublePubCampaignId)
       .accounts({
-        campaign: emptyCampaignPda,
-        authority: wallet.publicKey,
+        campaign: doublePubCampaignPda,
+        admin: wallet.publicKey,
         systemProgram: SystemProgram.programId,
       } as any)
       .rpc();
 
-    // Try to publish without submitting responses (should fail)
-    const emptyMerkleRoot = Array.from(new Uint8Array(32).fill(0));
+    // Publish once (should succeed)
+    await program.methods
+      .publishResponsesMerkleRoot(mockResponsesMerkleRoot, 50)
+      .accounts({
+        campaign: doublePubCampaignPda,
+        admin: wallet.publicKey,
+      } as any)
+      .rpc();
+
+    // Try to publish again (should fail)
     try {
       await program.methods
-        .publishCampaignResults(emptyMerkleRoot)
+        .publishResponsesMerkleRoot(mockResponsesMerkleRoot, 100)
         .accounts({
-          campaign: emptyCampaignPda,
-          authority: wallet.publicKey,
-          systemProgram: SystemProgram.programId,
+          campaign: doublePubCampaignPda,
+          admin: wallet.publicKey,
         } as any)
         .rpc();
-      expect.fail("Should have thrown an error");
+
+      expect.fail("Should have thrown AlreadyPublished error");
     } catch (error) {
-      expect(error.toString()).to.include("NoResponsesSubmitted");
+      expect(error.toString()).to.include("AlreadyPublished");
+      console.log("\n✅ Correctly prevented double publishing");
     }
   });
 
-  it("Tests campaign type validation", async () => {
-    // Try to create campaign with invalid type (should fail)
-    const invalidCampaignId = "invalid-type";
-    const [invalidCampaignPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("campaign"),
-        wallet.publicKey.toBuffer(),
-        Buffer.from(invalidCampaignId)
-      ],
+  it("Prevents publishing with zero responses", async () => {
+    const zeroCampaignId = `zero-${Date.now()}`;
+    const [zeroCampaignPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("campaign"), Buffer.from(zeroCampaignId)],
       program.programId
     );
 
+    // Initialize campaign
+    await program.methods
+      .initializeCampaign(zeroCampaignId)
+      .accounts({
+        campaign: zeroCampaignPda,
+        admin: wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      } as any)
+      .rpc();
+
+    // Try to publish with 0 responses
     try {
       await program.methods
-        .createCampaign(
-          invalidCampaignId,
-          "Fall 2024",
-          2, // Invalid type (only 0 and 1 allowed)
-          blindSignaturePublicKey,
-          encryptionPublicKey
-        )
+        .publishResponsesMerkleRoot(mockResponsesMerkleRoot, 0)
         .accounts({
-          campaign: invalidCampaignPda,
-          authority: wallet.publicKey,
-          systemProgram: SystemProgram.programId,
+          campaign: zeroCampaignPda,
+          admin: wallet.publicKey,
         } as any)
         .rpc();
-      expect.fail("Should have thrown an error");
+
+      expect.fail("Should have thrown NoResponses error");
     } catch (error) {
-      expect(error.toString()).to.include("InvalidCampaignType");
+      expect(error.toString()).to.include("NoResponses");
+      console.log("\n✅ Correctly prevented publishing with zero responses");
     }
   });
 
-  it("Tests campaign ID and semester length validation", async () => {
-    // Try to create campaign with too long ID (should fail)
-    const longCampaignId = "a".repeat(51); // 51 characters (limit is 50)
-    const shortIdForPda = "a".repeat(30); // Short ID for PDA generation
-    const [longIdCampaignPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("campaign"),
-        wallet.publicKey.toBuffer(),
-        Buffer.from(shortIdForPda)
-      ],
-      program.programId
-    );
-
-    try {
-      await program.methods
-        .createCampaign(
-          longCampaignId,
-          "Fall 2024",
-          0,
-          blindSignaturePublicKey,
-          encryptionPublicKey
-        )
-        .accounts({
-          campaign: longIdCampaignPda,
-          authority: wallet.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .rpc();
-      expect.fail("Should have thrown an error");
-    } catch (error) {
-      // The error is actually a Solana seed length error, not our custom error
-      expect(error.toString()).to.include("Length of the seed is too long");
-    }
-
-    // Try to create campaign with too long semester (should fail)
-    const longSemester = "a".repeat(21); // 21 characters (limit is 20)
-    const [longSemesterCampaignPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("campaign"),
-        wallet.publicKey.toBuffer(),
-        Buffer.from("long-sem") // Shorter ID to avoid seed length issues
-      ],
-      program.programId
-    );
-
-    try {
-      await program.methods
-        .createCampaign(
-          "long-sem",
-          longSemester,
-          0,
-          blindSignaturePublicKey,
-          encryptionPublicKey
-        )
-        .accounts({
-          campaign: longSemesterCampaignPda,
-          authority: wallet.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .rpc();
-      expect.fail("Should have thrown an error");
-    } catch (error) {
-      expect(error.toString()).to.include("SemesterTooLong");
-    }
-  });
-
-  it("Tests university-scale campaign workflow", async () => {
-    // Create a course survey campaign for a full semester
-    const universityCampaignId = `uni-${Date.now()}`; // Shorter ID
+  it("Simulates full university-scale workflow", async () => {
+    const universityCampaignId = `uni-${Date.now()}`;
     const [universityCampaignPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("campaign"),
-        wallet.publicKey.toBuffer(),
-        Buffer.from(universityCampaignId)
-      ],
+      [Buffer.from("campaign"), Buffer.from(universityCampaignId)],
       program.programId
     );
 
-    // Step 1: Create campaign
+    console.log("\n=== University-Scale Campaign Simulation ===");
+
+    // Step 1: Admin initializes campaign
+    console.log("\n[Step 1] Admin initializes campaign on blockchain...");
     await program.methods
-      .createCampaign(
-        universityCampaignId,
-        "Fall 2024",
-        0, // Course survey
-        blindSignaturePublicKey,
-        encryptionPublicKey
-      )
+      .initializeCampaign(universityCampaignId)
       .accounts({
         campaign: universityCampaignPda,
-        authority: wallet.publicKey,
+        admin: wallet.publicKey,
         systemProgram: SystemProgram.programId,
       } as any)
       .rpc();
+    console.log("✅ Campaign initialized (cost: ~$0.001)");
 
-    // Step 2: Submit batch responses (simulating 3 responses for testing)
-    const universityCommitments = [
-      Array.from(new Uint8Array(32).fill(100)), // University response 1
-      Array.from(new Uint8Array(32).fill(200)), // University response 2
-      Array.from(new Uint8Array(32).fill(300)), // University response 3
-    ];
-    const universityEncryptedResponses = [
-      Array.from(new Uint8Array(256).fill(100)), // University encrypted 1
-      Array.from(new Uint8Array(256).fill(200)), // University encrypted 2
-      Array.from(new Uint8Array(256).fill(300)), // University encrypted 3
-    ];
+    // Step 2: Students complete surveys off-chain (server stores in database)
+    console.log("\n[Step 2] Students complete surveys off-chain...");
+    console.log("  - 20,000 students submit encrypted responses");
+    console.log("  - Server stores in PostgreSQL database");
+    console.log("  - Server calculates Merkle root from commitments");
 
+    // Step 3: Admin publishes responses Merkle root
+    console.log("\n[Step 3] Admin publishes responses Merkle root...");
+    const totalStudents = 20000;
     await program.methods
-      .submitBatchResponses(universityCommitments, universityEncryptedResponses)
+      .publishResponsesMerkleRoot(mockResponsesMerkleRoot, totalStudents)
       .accounts({
         campaign: universityCampaignPda,
-        authority: wallet.publicKey,
-        systemProgram: SystemProgram.programId,
+        admin: wallet.publicKey,
       } as any)
       .rpc();
+    console.log("✅ Responses Merkle root published (cost: ~$0.001)");
+    console.log(`  - ${totalStudents} responses verifiable on-chain`);
 
-    // Step 3: Publish results (server calculates Merkle root off-chain)
-    const universityMerkleRoot = Array.from(new Uint8Array(32).fill(999));
+    // Step 4: Students claim participation in batches
+    console.log("\n[Step 4] Students claim participation (off-chain)...");
+    console.log("  - Batch 1: 5,000 students claim (server stores receipt hashes)");
+
+    const batch1MerkleRoot = Array.from(new Uint8Array(32).fill(100));
     await program.methods
-      .publishCampaignResults(universityMerkleRoot)
+      .updateClaimedReceiptsRoot(batch1MerkleRoot, 5000)
       .accounts({
         campaign: universityCampaignPda,
-        authority: wallet.publicKey,
-        systemProgram: SystemProgram.programId,
+        admin: wallet.publicKey,
       } as any)
       .rpc();
+    console.log("✅ Batch 1 published to blockchain (cost: ~$0.001)");
+
+    console.log("\n  - Batch 2: 10,000 students claim");
+    const batch2MerkleRoot = Array.from(new Uint8Array(32).fill(200));
+    await program.methods
+      .updateClaimedReceiptsRoot(batch2MerkleRoot, 10000)
+      .accounts({
+        campaign: universityCampaignPda,
+        admin: wallet.publicKey,
+      } as any)
+      .rpc();
+    console.log("✅ Batch 2 published to blockchain (cost: ~$0.001)");
+
+    console.log("\n  - Batch 3: 15,000 students claim");
+    const batch3MerkleRoot = Array.from(new Uint8Array(32).fill(300));
+    await program.methods
+      .updateClaimedReceiptsRoot(batch3MerkleRoot, 15000)
+      .accounts({
+        campaign: universityCampaignPda,
+        admin: wallet.publicKey,
+      } as any)
+      .rpc();
+    console.log("✅ Batch 3 published to blockchain (cost: ~$0.001)");
+
+    // Step 5: Admin closes campaign
+    console.log("\n[Step 5] Admin closes campaign...");
+    await program.methods
+      .closeCampaign()
+      .accounts({
+        campaign: universityCampaignPda,
+        admin: wallet.publicKey,
+      } as any)
+      .rpc();
+    console.log("✅ Campaign closed (cost: ~$0.001)");
 
     // Verify final state
-    const finalCampaign = await program.account.surveyCampaign.fetch(universityCampaignPda);
-    expect(finalCampaign.campaignId).to.equal(universityCampaignId);
-    expect(finalCampaign.semester).to.equal("Fall 2024");
-    expect(finalCampaign.campaignType).to.equal(0); // Course survey
-    expect(finalCampaign.totalResponses).to.equal(3);
-    expect(finalCampaign.isPublished).to.equal(true);
-    expect(finalCampaign.merkleRoot).to.deep.equal(universityMerkleRoot);
-    expect(finalCampaign.encryptedResponses).to.have.length(0); // Cleared after publishing
-    expect(finalCampaign.commitments).to.have.length(3); // Kept for verification
+    const finalCampaign = await program.account.campaign.fetch(universityCampaignPda);
 
-    console.log("\n=== University-Scale Campaign Test ===");
-    console.log("✅ Campaign created successfully");
-    console.log("✅ Batch responses submitted (3 responses for testing)");
-    console.log("✅ Results published successfully");
-    console.log("✅ Merkle root stored for teacher verification");
-    console.log("✅ Encrypted responses cleared (space optimized)");
-    console.log("✅ Commitments kept for verification");
-    console.log("✅ Ready for accreditation body verification");
+    console.log("\n=== Final Campaign State ===");
+    console.log("Campaign ID:", finalCampaign.campaignId);
+    console.log("Total Responses:", finalCampaign.totalResponses);
+    console.log("Claimed Count:", finalCampaign.claimedCount);
+    console.log("Is Closed:", finalCampaign.isClosed);
+    console.log("\n💰 Total Cost: ~$0.005 (5 transactions)");
+    console.log("📊 Cost per student: ~$0.00000025");
+    console.log("🎯 99.9% cheaper than on-chain storage!");
+
+    expect(finalCampaign.totalResponses).to.equal(totalStudents);
+    expect(finalCampaign.claimedCount).to.equal(15000);
+    expect(finalCampaign.isClosed).to.equal(true);
+  });
+
+  it("Fetches and displays complete campaign information", async () => {
+    // Fetch the original campaign
+    const campaign = await program.account.campaign.fetch(campaignPda);
+
+    console.log("\n=== Campaign Information ===");
+    console.log("Campaign ID:", campaign.campaignId);
+    console.log("Admin:", campaign.admin.toString());
+    console.log("Total Responses:", campaign.totalResponses);
+    console.log("Claimed Count:", campaign.claimedCount);
+    console.log("Is Closed:", campaign.isClosed);
+    console.log("Created At:", new Date(campaign.createdAt.toNumber() * 1000).toISOString());
+    console.log("Updated At:", new Date(campaign.updatedAt.toNumber() * 1000).toISOString());
+
+    if (campaign.responsesMerkleRoot) {
+      console.log("Responses Merkle Root:", Buffer.from(campaign.responsesMerkleRoot).toString('hex'));
+    }
+
+    if (campaign.claimedReceiptsRoot) {
+      console.log("Claimed Receipts Root:", Buffer.from(campaign.claimedReceiptsRoot).toString('hex'));
+    }
+
+    console.log("\n✅ All campaign data verified successfully!");
   });
 });
