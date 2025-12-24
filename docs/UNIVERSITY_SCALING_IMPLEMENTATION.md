@@ -117,14 +117,20 @@ Admin wants stats → Server fetches from blockchain → Stores encrypted_data (
 6. **Batch Submit**: Submit all completed surveys to blockchain at once
 7. **Token Completion**: Token marked as completed after successful submission
 
-### Teacher Workflow
-1. **Campaign Opened**: Admin opens semester survey campaign
-2. **Input Courses**: Teacher inputs their assigned courses first
-3. **Course Windows**: UI shows course windows (e.g., 8 courses)
-4. **Select Course**: Choose one course to input student information
-5. **Input Students**: Fill in student information for selected course
-6. **Submit Course**: Submit each course individually (not all at once)
-7. **Repeat**: Continue for all assigned courses
+### Teacher Workflow (Deprecated - Admin Handles All Input)
+
+**Note**: In the final design, teachers have **read-only access**. All data input (courses, students, enrollments) is handled by administrators to simplify the system and reduce complexity.
+
+**Teacher Capabilities**:
+1. **View Campaigns**: See active survey campaigns
+2. **View Assigned Courses**: See courses they teach
+3. **Monitor Participation**: View which students have completed surveys (no individual responses)
+4. **Access Analytics**: View anonymized aggregate data after campaign closure
+
+**Original Design (Removed)**:
+- ~~Teachers input their own courses and students~~
+- ~~Teachers submit course data individually~~
+- Simplified to admin-only input for better control and consistency
 
 ### Admin Workflow (5 Main Processes)
 
@@ -136,8 +142,8 @@ Admin wants stats → Server fetches from blockchain → Stores encrypted_data (
 
 #### 2. Survey Campaign Creation
 - Create "Semester Quality Survey Check" campaign
-- **Campaign Status**: "opened" allows teachers to input courses, "closed" prevents input
-- **Open/Close Control**: Admin opens campaign for teacher input, then closes when ready
+- **Campaign Status**: "draft" (being created), "open" (accepting responses), "launched" (tokens sent), "closed" (no more responses), "published" (results available)
+- **Admin Control**: Admin creates campaign, assigns courses/students, then launches when ready
 
 #### 3. Survey Campaign Launch
 - System auto-generates surveys from teacher inputs
@@ -210,7 +216,8 @@ interface SurveyCampaign {
   name: string;
   semester: string;
   type: 'course' | 'event';
-  status: 'draft' | 'teachers_input' | 'open' | 'launched' | 'closed' | 'published';
+  status: 'draft' | 'open' | 'launched' | 'closed' | 'published';
+  // Note: 'teachers_input' state removed - admin handles all data input
   createdBy: string;
   openedAt?: Date;
   closedAt?: Date;
