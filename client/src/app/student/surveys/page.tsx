@@ -32,85 +32,64 @@ export default function StudentSurveysPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check if student has a valid token in session
-    const sessionToken = sessionStorage.getItem('studentToken');
-    if (!sessionToken) {
-      router.push('/student');
+    // Load surveys from sessionStorage (populated during Phase 1)
+    // We no longer check for studentToken as it's not stored for privacy
+    const surveysData = sessionStorage.getItem('surveys');
+    if (!surveysData) {
+      // If no surveys in session, redirect back to login
+      router.push('/login/student');
       return;
     }
 
-    // Safety check: Clean up proofs from different tokens
-    // This catches cases where token was switched without going through login page
-    const allProofs = getAllProofsFromSession();
+    try {
+      const parsedSurveys = JSON.parse(surveysData);
+      setSurveys(parsedSurveys);
 
-    // Remove proofs that don't belong to current token
-    allProofs.forEach(proof => {
-      if (proof.token && proof.token !== sessionToken) {
-        localStorage.removeItem(`proof_${proof.surveyId}`);
-        console.log(`Removed proof for survey ${proof.surveyId} from different token`);
-      } else if (!proof.token) {
-        // Old proof without token field - remove to be safe
-        localStorage.removeItem(`proof_${proof.surveyId}`);
-        console.log(`Removed old proof for survey ${proof.surveyId} (missing token field)`);
-      }
-    });
+      // Student name is no longer stored for privacy
+      // Set default name
+      setStudentName('Student');
+    } catch (err) {
+      console.error('Failed to parse surveys from session:', err);
+      setError('Failed to load surveys. Please login again.');
+      router.push('/login/student');
+      return;
+    }
 
-    loadSurveys();
+    setLoading(false);
   }, [router]);
 
-  const loadSurveys = async () => {
-    try {
-      setLoading(true);
-      setError('');
+  const handleSubmitAll = () => {
+    // Check if all surveys are completed
+    const completedResponses = JSON.parse(sessionStorage.getItem('completedResponses') || '[]');
 
-      const sessionToken = sessionStorage.getItem('studentToken');
-      if (!sessionToken) {
-        router.push('/student');
-        return;
-      }
-
-      const { apiClient } = await import('@/lib/api/client');
-
-      // Get all surveys for this student
-      const response = await apiClient.post('/tokens/student-surveys', {
-        token: sessionToken
-      });
-
-      if (response.data && response.data.surveys) {
-        setSurveys(response.data.surveys);
-        if (response.data.surveys.length > 0) {
-          setStudentName(response.data.studentName || 'Student');
-        }
-      } else {
-        setSurveys([]);
-      }
-    } catch (err: any) {
-      console.error('Failed to load surveys:', err);
-      setError('Failed to load surveys. Please try again.');
-    } finally {
-      setLoading(false);
+    if (completedResponses.length === 0) {
+      setError('Please complete at least one survey before submitting.');
+      return;
     }
+
+    if (completedResponses.length < surveys.length) {
+      const confirmSubmit = window.confirm(
+        `You have completed ${completedResponses.length} out of ${surveys.length} surveys. ` +
+        'Do you want to submit what you have completed so far. Your participation will not be recorded after submission.'
+      );
+      if (!confirmSubmit) return;
+    }
+
+    // Redirect to batch submission page
+    router.push('/student/surveys/submit-all');
   };
 
   if (loading) {
     return <LoadingSpinner message="Loading your surveys..." fullScreen />;
   }
 
-  // Get all proofs from sessionStorage
-  const allProofs = getAllProofsFromSession();
+  // Get completed responses from sessionStorage (Phase 2)
+  const completedResponses = JSON.parse(sessionStorage.getItem('completedResponses') || '[]');
+  const completedSurveyIds = completedResponses.map((r: any) => r.surveyId);
 
-  // A survey is completed if:
-  // 1. It's marked as used in DB (submitted to blockchain), OR
-  // 2. There's a proof for it in sessionStorage (completed but not yet submitted)
-  const completedSurveys = surveys.filter(s => {
-    if (s.used) return true;
-    return allProofs.some(p => p.surveyId === s.id);
-  });
-
-  const pendingSurveys = surveys.filter(s => {
-    if (s.used) return false;
-    return !allProofs.some(p => p.surveyId === s.id);
-  });
+  // A survey is completed if it's in the completedResponses array
+  const completedSurveys = surveys.filter(s => completedSurveyIds.includes(s.id));
+  const pendingSurveys = surveys.filter(s => !completedSurveyIds.includes(s.id));
 
   const completionRate = surveys.length > 0
     ? Math.round((completedSurveys.length / surveys.length) * 100)
@@ -197,12 +176,12 @@ export default function StudentSurveysPage() {
                     </p>
                   </div>
 
-                  <Link
-                    href={`/student/surveys/${survey.id}`}
+                  <button
+                    onClick={() => router.push(`/student/surveys/${survey.id}`)}
                     className="block w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white text-center py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all duration-200 transform hover:scale-105"
                   >
                     Start Evaluation
-                  </Link>
+                  </button>
                 </div>
               ))}
             </div>
@@ -213,13 +192,21 @@ export default function StudentSurveysPage() {
       {/* Completed Surveys */}
       {completedSurveys.length > 0 && (
         <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">
-              Completed Evaluations ({completedSurveys.length})
-            </h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Review your completed evaluations
-            </p>
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">
+                Completed Evaluations ({completedSurveys.length})
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Review your completed evaluations or submit them all
+              </p>
+            </div>
+            <button
+              onClick={handleSubmitAll}
+              className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all duration-200 transform hover:scale-105 shadow-lg"
+            >
+              Submit All Surveys
+            </button>
           </div>
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -248,23 +235,11 @@ export default function StudentSurveysPage() {
                     )}
                   </div>
 
-                  <div className="mb-4 pt-4 border-t border-green-200">
+                  <div className="pt-4 border-t border-green-200">
                     <p className="text-xs text-gray-500 mb-1">
                       Campaign: {survey.campaignName}
                     </p>
-                    {survey.completedAt && (
-                      <p className="text-xs text-gray-500">
-                        Completed: {new Date(survey.completedAt).toLocaleDateString()}
-                      </p>
-                    )}
                   </div>
-
-                  <Link
-                    href={`/student/surveys/${survey.id}/completed`}
-                    className="block w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white text-center py-3 rounded-lg font-semibold hover:from-green-700 hover:to-emerald-700 transition-all duration-200 transform hover:scale-105"
-                  >
-                    View Details
-                  </Link>
                 </div>
               ))}
             </div>

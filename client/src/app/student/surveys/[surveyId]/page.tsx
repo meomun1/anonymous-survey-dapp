@@ -55,13 +55,6 @@ export default function TakeSurveyPage() {
   const surveyId = params.surveyId as string;
 
   useEffect(() => {
-    // Check if student has a valid token in session
-    const sessionToken = sessionStorage.getItem('studentToken');
-    if (!sessionToken) {
-      router.push('/student');
-      return;
-    }
-
     loadSurvey();
   }, [surveyId, router]);
 
@@ -70,59 +63,50 @@ export default function TakeSurveyPage() {
       setLoading(true);
       setError('');
 
-      const sessionToken = sessionStorage.getItem('studentToken');
-      if (!sessionToken) {
-        router.push('/student');
+      // Load surveys from sessionStorage (populated during Phase 1)
+      const surveysData = sessionStorage.getItem('surveys');
+      if (!surveysData) {
+        router.push('/login/student');
         return;
       }
 
-      const { apiClient } = await import('@/lib/api/client');
+      const surveys = JSON.parse(surveysData);
+      const surveyData = surveys.find((s: any) => s.id === surveyId);
 
-      // Get all surveys for this student token
-      const response = await apiClient.post('/tokens/student-surveys', {
-        token: sessionToken
+      if (!surveyData) {
+        setError('Survey not found');
+        setSurvey(null);
+        return;
+      }
+
+      // Check if already completed
+      const completedResponses = JSON.parse(sessionStorage.getItem('completedResponses') || '[]');
+      const isAlreadyCompleted = completedResponses.some((r: any) => r.surveyId === surveyId);
+
+      if (isAlreadyCompleted) {
+        router.push('/student/surveys');
+        return;
+      }
+
+      setSurvey({
+        id: surveyData.id,
+        tokenId: surveyData.tokenId || '',
+        token: '', // No longer stored for privacy
+        courseCode: surveyData.courseCode,
+        courseName: surveyData.courseName,
+        campaignName: surveyData.campaignName || '',
+        campaignId: sessionStorage.getItem('campaignId') || '',
+        teacherId: surveyData.teacherId,
+        teacherName: surveyData.teacherName,
+        numQuestions: 25, // Default template has 25 questions
+        used: false
       });
 
-      if (response.data && response.data.surveys) {
-        const surveys = response.data.surveys;
+      // Load questions from template
+      const template = getDefaultTemplate();
+      setQuestions(template.questions);
 
-        // Find the specific survey by ID
-        const surveyData = surveys.find((s: any) => s.id === surveyId);
-
-        if (!surveyData) {
-          setError('Survey not found');
-          setSurvey(null);
-          return;
-        }
-
-        setSurvey({
-          id: surveyData.id,
-          tokenId: surveyData.tokenId,
-          token: surveyData.token,
-          courseCode: surveyData.courseCode,
-          courseName: surveyData.courseName,
-          campaignName: surveyData.campaignName,
-          campaignId: surveyData.campaignId,
-          teacherId: surveyData.teacherId,
-          teacherName: surveyData.teacherName,
-          numQuestions: surveyData.numQuestions || 25,
-          used: surveyData.used
-        });
-
-        // Check if already completed
-        if (surveyData.used) {
-          router.push(`/student/surveys/${surveyId}/completed`);
-          return;
-        }
-
-        // Load questions from template
-        const template = getDefaultTemplate();
-        setQuestions(template.questions);
-      } else {
-        setError('No surveys found');
-      }
     } catch (err: any) {
-      console.error('Failed to load survey:', err);
       setError('Failed to load survey. Please try again.');
     } finally {
       setLoading(false);
@@ -173,91 +157,45 @@ export default function TakeSurveyPage() {
         answersArray
       );
 
-      console.log('Answer string formatted:', answerString.substring(0, 50) + '...');
 
       // Step 3: Generate commitment (SHA-256 hash)
       const commitment = await generateCommitment(answerString);
-      console.log('Commitment generated:', commitment);
 
-      // Step 4: Get campaign public keys
-      const publicKeysResponse = await cryptoApi.getCampaignPublicKeys(survey.campaignId);
-      const publicKeys: CampaignPublicKeys = publicKeysResponse.data;
-      console.log('Public keys retrieved');
+      // Step 4: Get encryption public key from session
+      const encryptionPublicKeyBase64 = sessionStorage.getItem('encryptionPublicKey');
+      if (!encryptionPublicKeyBase64) {
+        throw new Error('Encryption key not found in session');
+      }
 
-      // Convert base64 public keys to ArrayBuffer
-      const blindSignaturePublicKeyBuffer = base64ToArrayBuffer(publicKeys.blindSignaturePublicKey);
-      const encryptionPublicKeyBuffer = base64ToArrayBuffer(publicKeys.encryptionPublicKey);
+      // Step 5: Import encryption key
+      const { CryptoUtils } = await import('@/lib/crypto/blindSignatures');
+      const encryptionPublicKey = await CryptoUtils.importPublicKey(encryptionPublicKeyBase64, 'encryption');
 
-      // Step 5: Blind the answer string for signature
-      const { blindedMsg, preparedMsg, inv } = await blindMessage(answerString, blindSignaturePublicKeyBuffer);
-      const blindedMsgBase64 = arrayBufferToBase64(blindedMsg.buffer);
-      console.log('Message blinded');
+      // Step 6: Encrypt answer string with RSA-OAEP
+      const encryptedAnswer = await CryptoUtils.encryptAnswer(answerString, encryptionPublicKey);
 
-      // Step 6: Request blind signature from server
-      const blindSignatureResponse = await cryptoApi.generateBlindSignature(
-        survey.campaignId,
-        { blindedMessage: blindedMsgBase64 }
-      );
-      const blindSignatureBase64 = blindSignatureResponse.data.blindSignature;
-      console.log('Blind signature received from server');
 
-      // Step 7: Unblind the signature
-      const blindSignatureBuffer = base64ToArrayBuffer(blindSignatureBase64);
-      const blindSignatureBytes = new Uint8Array(blindSignatureBuffer);
-      const unblinedSignature = await unblindSignature(
-        blindSignaturePublicKeyBuffer,
-        preparedMsg,
-        blindSignatureBytes,
-        inv
-      );
-      const finalSignatureHex = uint8ArrayToHex(unblinedSignature);
-      console.log('Signature unblinded');
-
-      // Step 8: Encrypt answer string with RSA-OAEP
-      const encryptedData = await encryptAnswerString(
-        answerString,
-        encryptionPublicKeyBuffer
-      );
-      console.log('Answer string encrypted');
-
-      // Step 9: Save proof to localStorage
-      const sessionToken = sessionStorage.getItem('studentToken');
-      const proof: SurveyProof = {
+      // Step 7: Store in sessionStorage for batch submission (Phase 3)
+      const completedResponses = JSON.parse(sessionStorage.getItem('completedResponses') || '[]');
+      completedResponses.push({
         surveyId: survey.id,
         courseCode: survey.courseCode,
-        courseName: survey.courseName,
         teacherId: survey.teacherId,
-        teacherName: survey.teacherName,
-        campaignId: survey.campaignId,
-        campaignName: survey.campaignName,
-        token: sessionToken || survey.token, // Store token for ownership tracking
-        answerString,
-        answers: answersArray,
+        encryptedAnswer: Array.from(new Uint8Array(encryptedAnswer)),
         commitment,
-        blindSignature: finalSignatureHex,
-        encryptedData,
-        timestamp: new Date().toISOString()
-      };
+        timestamp: Date.now()
+      });
+      const completedResponsesJson = JSON.stringify(completedResponses);
+      sessionStorage.setItem('completedResponses', completedResponsesJson);
 
-      saveProofToSession(survey.id, proof);
-      console.log('Proof saved to session');
+      // Also backup to localStorage for resume after tab close
+      localStorage.setItem('workflow_completedResponses', completedResponsesJson);
 
-      // Step 8: Store proof metadata for batch submission tracking
-      const proofMetadata = JSON.parse(localStorage.getItem('proof_metadata') || '{}');
-      proofMetadata[survey.id] = {
-        campaignId: survey.campaignId,
-        campaignName: survey.campaignName,
-        token: survey.token,
-        completed: true
-      };
-      localStorage.setItem('proof_metadata', JSON.stringify(proofMetadata));
-      console.log('Proof metadata saved to localStorage');
 
-      // Redirect to completion page (will show batch submit button if all surveys done)
-      router.push(`/student/surveys/${surveyId}/completed`);
+      // Redirect back to surveys list
+      router.push('/student/surveys');
 
     } catch (err: any) {
-      console.error('Failed to submit response:', err);
       setError(err.message || 'Failed to process your response. Please try again.');
       setShowConfirmSubmit(false);
     } finally {

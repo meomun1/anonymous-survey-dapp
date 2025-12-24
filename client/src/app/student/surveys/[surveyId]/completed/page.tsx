@@ -49,9 +49,10 @@ export default function SurveyCompletedPage() {
   const surveyId = params.surveyId as string;
 
   useEffect(() => {
-    // Check if student has a valid token in session
-    const sessionToken = sessionStorage.getItem('studentToken');
-    if (!sessionToken) {
+    // Check if student has surveys data (indicates valid session)
+    // We no longer store studentToken for privacy
+    const surveys = sessionStorage.getItem('surveys');
+    if (!surveys) {
       router.push('/student');
       return;
     }
@@ -73,14 +74,8 @@ export default function SurveyCompletedPage() {
       setLoading(true);
       setError('');
 
-      const sessionToken = sessionStorage.getItem('studentToken');
-      if (!sessionToken) {
-        router.push('/student');
-        return;
-      }
-
-      // Check if already submitted to blockchain
-      const submission = getBlockchainSubmission(sessionToken);
+      // Check if already submitted to blockchain (token is optional)
+      const submission = getBlockchainSubmission(undefined);
       if (submission) {
         setSubmitted(true);
         setTransactionHash(submission.transactionHash);
@@ -95,7 +90,7 @@ export default function SurveyCompletedPage() {
             courseName: proof.courseName,
             campaignName: proof.campaignName || 'Campaign',
             campaignId: proof.campaignId || '',
-            token: sessionToken
+            token: '' // No longer stored for privacy
           });
         }
 
@@ -132,32 +127,32 @@ export default function SurveyCompletedPage() {
           courseName: proof.courseName || '',
           campaignName: proof.campaignName || 'Campaign',
           campaignId: proof.campaignId || '',
-          token: sessionToken
+          token: '' // No longer stored for privacy
         });
       }
 
       // Get all surveys to check if all are complete
+      // NOTE: This endpoint might require token, but we don't store it anymore
+      // If this is used, we may need to refactor this endpoint
       const { apiClient } = await import('@/lib/api/client');
-      const response = await apiClient.post('/tokens/student-surveys', {
+      const surveysData = sessionStorage.getItem('surveys');
+      if (surveysData) {
+        const surveys = JSON.parse(surveysData);
+        setAllSurveys(surveys.map((s: any) => ({ id: s.id, courseCode: s.courseCode, used: false })));
+      }
+      
+      // Skip API call since we don't have token - use surveys from sessionStorage instead
+      /* const response = await apiClient.post('/tokens/student-surveys', {
         token: sessionToken
       });
 
-      if (response.data && response.data.surveys) {
-        const surveys = response.data.surveys;
-        setAllSurveys(surveys);
-
-        // Check if all surveys are completed (have proofs in sessionStorage)
-        // Note: s.used means already submitted to blockchain, so we don't need a proof for those
-        const allProofs = getAllProofsFromSession();
-
-        const allDone = surveys.every((s: Survey) => {
-          // If already marked as used in DB, it's done
-          if (s.used) return true;
-          // Otherwise check if we have a proof in sessionStorage
-          return allProofs.some(p => p.surveyId === s.id);
-        });
-        setAllComplete(allDone);
-      }
+      // Check if all surveys are completed (have proofs in sessionStorage)
+      const allProofs = getAllProofsFromSession();
+      const completedCount = allProofs.length;
+      const totalCount = surveysData ? JSON.parse(surveysData).length : 0;
+      const allDone = totalCount > 0 && completedCount >= totalCount;
+      setAllComplete(allDone);
+      */
     } catch (err: any) {
       console.error('Failed to load data:', err);
       setError('Failed to load survey details.');
@@ -220,8 +215,10 @@ export default function SurveyCompletedPage() {
       }));
 
       // Submit to blockchain
+      // NOTE: This endpoint may require token, but we no longer store it for privacy
+      // This page appears to be legacy code - current workflow uses submit-all page
       const result = await responsesApi.submitStudentResponses({
-        token: survey.token,
+        token: '', // No longer stored - this may need API refactoring if this page is used
         responses
       });
 

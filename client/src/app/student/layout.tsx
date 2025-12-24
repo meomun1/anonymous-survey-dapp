@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 
 export default function StudentLayout({
@@ -10,20 +10,32 @@ export default function StudentLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
-    // Check if student is authenticated
-    const sessionToken = sessionStorage.getItem('studentToken');
-    if (!sessionToken) {
+    // Skip auth check for claim participation page (Phase 4 - independent from other phases)
+    if (pathname === '/student/surveys/claim-participation') {
+      return;
+    }
+
+    // Check if student has surveys data (indicates valid session)
+    // We no longer store studentToken for privacy
+    const surveys = sessionStorage.getItem('surveys');
+    if (!surveys) {
       // Redirect to login if not authenticated
       router.push('/login/student');
     }
-  }, [router]);
+  }, [router, pathname]);
 
   const handleLogout = () => {
-    // Clear student session
-    sessionStorage.removeItem('studentToken');
-    sessionStorage.removeItem('studentTokenData');
+    // Clear student session (only safe data that we store)
+    sessionStorage.clear();
+    // Also clear workflow data from localStorage
+    const workflowKeys = [
+      'campaignId', 'ticketCommitment', 'surveys', 'blindSignaturePublicKey',
+      'encryptionPublicKey', 'completedResponses'
+    ];
+    workflowKeys.forEach(key => localStorage.removeItem(`workflow_${key}`));
     router.push('/login/student');
   };
 
@@ -73,7 +85,7 @@ export default function StudentLayout({
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between text-sm">
             <div className="text-white/60">
-              Anonymous Survey System - Powered by Blockchain
+              Anonymous Survey System - Powered by International University
             </div>
             <div className="flex items-center space-x-4">
               <div className="text-white/40 text-xs">

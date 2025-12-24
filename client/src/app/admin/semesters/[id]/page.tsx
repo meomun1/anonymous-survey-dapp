@@ -81,7 +81,7 @@ export default function SemesterCampaignsPage() {
           await launchCampaign(campaignId);
           break;
         case 'publish':
-          await publishCampaign(campaignId);
+          await closeCampaign(campaignId);
           break;
       }
       await loadData(); // Refresh the list

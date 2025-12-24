@@ -179,4 +179,67 @@ export function base64ToUint8Array(base64: string): Uint8Array {
 // Helper function to convert ArrayBuffer to number array for JSON
 export function arrayBufferToNumberArray(buffer: ArrayBuffer): number[] {
   return Array.from(new Uint8Array(buffer));
+}
+
+/**
+ * NEW DOUBLE BLIND SIGNATURE WORKFLOW HELPERS
+ */
+
+// Blind the actual token string (Phase 1)
+export async function blindTokenString(
+  token: string,
+  publicKey: CryptoKey
+): Promise<{ blindedMsg: Uint8Array; inv: Uint8Array; preparedToken: Uint8Array }> {
+  const suite = RSABSSA.SHA384.PSS.Randomized();
+
+  // IMPORTANT: Blind the actual token string, not JSON metadata!
+  const tokenMessage = new TextEncoder().encode(token);
+  const preparedToken = suite.prepare(tokenMessage);
+  const { blindedMsg, inv } = await suite.blind(publicKey, preparedToken);
+
+  return { blindedMsg, inv, preparedToken };
+}
+
+// Generate random receipt R (Phase 3)
+export function generateReceipt(): string {
+  const randomBytes = new Uint8Array(32);
+  window.crypto.getRandomValues(randomBytes);
+  return Array.from(randomBytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+// Blind receipt (Phase 3)
+export async function blindReceipt(
+  receiptR: string,
+  publicKey: CryptoKey
+): Promise<{ blindedMsg: Uint8Array; inv: Uint8Array; preparedReceipt: Uint8Array }> {
+  const suite = RSABSSA.SHA384.PSS.Randomized();
+  const receiptMessage = new TextEncoder().encode(receiptR);
+  const preparedReceipt = suite.prepare(receiptMessage);
+  const { blindedMsg, inv } = await suite.blind(publicKey, preparedReceipt);
+
+  return { blindedMsg, inv, preparedReceipt };
+}
+
+// Unblind signature (Phases 1 & 3)
+export async function unblindSignature(
+  publicKey: CryptoKey,
+  preparedMsg: Uint8Array,
+  blindSignature: Uint8Array,
+  inv: Uint8Array
+): Promise<Uint8Array> {
+  const suite = RSABSSA.SHA384.PSS.Randomized();
+  const signature = await suite.finalize(publicKey, preparedMsg, blindSignature, inv);
+  return signature;
+}
+
+// Verify signature (Phases 1 & 3)
+export async function verifyBlindSignature(
+  publicKey: CryptoKey,
+  signature: Uint8Array,
+  preparedMsg: Uint8Array
+): Promise<boolean> {
+  const suite = RSABSSA.SHA384.PSS.Randomized();
+  return await suite.verify(publicKey, signature, preparedMsg);
 } 

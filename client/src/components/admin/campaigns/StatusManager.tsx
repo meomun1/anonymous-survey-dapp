@@ -6,14 +6,16 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 interface StatusManagerProps {
   campaign: Campaign;
-  onStatusChange: (action: 'open' | 'close' | 'launch' | 'publish', merkleRoot?: string) => Promise<void>;
-  merkleRoot?: string | null;
+  onStatusChange: (action: 'open' | 'close' | 'launch' | 'publish') => Promise<void>;
+  onPublishResponses: () => Promise<{ merkleRoot: string; totalResponses: number }>;
+  onPublishClaims: () => Promise<{ merkleRoot: string; totalClaimed: number }>;
 }
 
-export const StatusManager = ({ campaign, onStatusChange, merkleRoot }: StatusManagerProps) => {
+export const StatusManager = ({ campaign, onStatusChange, onPublishResponses, onPublishClaims }: StatusManagerProps) => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [currentAction, setCurrentAction] = useState<'open' | 'close' | 'launch' | 'publish' | null>(null);
   const [loading, setLoading] = useState(false);
+  const [publishProgress, setPublishProgress] = useState('');
 
   const getAvailableActions = () => {
     switch (campaign.status) {
@@ -48,22 +50,18 @@ export const StatusManager = ({ campaign, onStatusChange, merkleRoot }: StatusMa
         return [{
           action: 'close' as const,
           label: 'Close Campaign',
-          description: 'Stop accepting new responses and prepare to process results',
+          description: 'Stop accepting new student submissions (does NOT finalize on blockchain)',
           color: 'bg-red-600 hover:bg-red-700',
-          confirmMessage: 'This will close the campaign. Students will no longer be able to submit responses. You can then ingest responses from blockchain and decrypt them.'
+          confirmMessage: 'This will close the campaign to new submissions. Students will no longer be able to submit responses. You can then publish Merkle roots and proceed with verification. Note: This does NOT finalize the campaign on blockchain - that is a separate action in the Danger Zone.'
         }];
 
       case 'closed':
         return [{
           action: 'publish' as const,
           label: 'Publish Results',
-          description: merkleRoot
-            ? 'Make campaign results public with verified Merkle root'
-            : 'Calculate Merkle root before publishing results',
-          color: merkleRoot ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-400 cursor-not-allowed',
-          confirmMessage: merkleRoot
-            ? 'This will publish the campaign results and make analytics available. The Merkle root has been calculated and will be recorded on-chain.'
-            : 'Please calculate the Merkle root before publishing.'
+          description: 'Publish Merkle roots to blockchain and make results public',
+          color: 'bg-purple-600 hover:bg-purple-700',
+          confirmMessage: 'This will:\n1. Publish response commitments to blockchain (Tree #1)\n2. Publish participation claims to blockchain (Tree #2)\n3. Make campaign results public\n\nThis process may take a few moments. Continue?'
         }];
 
       default:
@@ -82,20 +80,45 @@ export const StatusManager = ({ campaign, onStatusChange, merkleRoot }: StatusMa
     try {
       setLoading(true);
 
-      // For publish action, pass the merkleRoot
+      // For publish action, do blockchain operations first
       if (currentAction === 'publish') {
-        if (!merkleRoot) {
-          throw new Error('Cannot publish without Merkle root. Please calculate Merkle root first.');
+        // Step 1: Publish response commitments (Tree #1) - ignore if already published
+        setPublishProgress('Publishing response commitments to blockchain...');
+        try {
+          await onPublishResponses();
+        } catch (err: any) {
+          // If already published, continue
+          if (!err.message?.includes('already published')) {
+            throw err;
+          }
+          console.log('Response Merkle root already published, continuing...');
         }
-        await onStatusChange(currentAction, merkleRoot);
+
+        // Step 2: Publish participation claims (Tree #2) - ignore if already published
+        setPublishProgress('Publishing participation claims to blockchain...');
+        try {
+          await onPublishClaims();
+        } catch (err: any) {
+          // If already published, continue
+          if (!err.message?.includes('already published')) {
+            throw err;
+          }
+          console.log('Claims Merkle root already published, continuing...');
+        }
+
+        // Step 3: Change status to published
+        setPublishProgress('Finalizing publication...');
+        await onStatusChange(currentAction);
       } else {
         await onStatusChange(currentAction);
       }
 
       setShowConfirm(false);
       setCurrentAction(null);
+      setPublishProgress('');
     } catch (error) {
       console.error('Status change failed:', error);
+      setPublishProgress('');
     } finally {
       setLoading(false);
     }
@@ -128,10 +151,15 @@ export const StatusManager = ({ campaign, onStatusChange, merkleRoot }: StatusMa
 
             <button
               onClick={() => handleActionClick(currentActionData.action)}
-              disabled={loading || (currentActionData.action === 'publish' && !merkleRoot)}
+              disabled={loading}
               className={`${currentActionData.color} text-white px-6 py-3 rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-full md:w-auto`}
             >
-              {loading ? 'Processing...' : currentActionData.label}
+              {loading ? (
+                <div className="flex items-center space-x-2">
+                  <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
+                  <span>{publishProgress || 'Processing...'}</span>
+                </div>
+              ) : currentActionData.label}
             </button>
           </div>
 

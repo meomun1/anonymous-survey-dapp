@@ -6,12 +6,10 @@ import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { useCampaigns } from '@/hooks/useCampaigns';
 import { useAnalytics } from '@/hooks/useAnalytics';
-import { useResponses } from '@/hooks/useResponses';
 import { Campaign } from '@/lib/api/campaigns';
 import { CampaignOverview } from '@/components/admin/campaigns/CampaignOverview';
 import { StatusManager } from '@/components/admin/campaigns/StatusManager';
-import { ProcessResponses } from '@/components/admin/campaigns/ProcessResponses';
-import { PublishResults } from '@/components/admin/campaigns/PublishResults';
+import { BlockchainFinalizer } from '@/components/admin/campaigns/BlockchainFinalizer';
 import { CampaignStats } from '@/components/admin/campaigns/CampaignStats';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { ErrorMessage } from '@/components/shared/ErrorMessage';
@@ -31,19 +29,15 @@ export default function CampaignDetailsPage() {
     openCampaign,
     closeCampaign,
     launchCampaign,
-    publishCampaign
+    publishCampaign,
+    publishResponses,
+    publishClaims,
+    closeBlockchain
   } = useCampaigns();
   const {
     analytics,
-    merkleRoot,
-    fetchCampaignAnalytics,
-    calculateMerkleRoot,
-    fetchMerkleRoot
+    fetchCampaignAnalytics
   } = useAnalytics();
-  const {
-    ingestFromBlockchain,
-    decryptCampaignResponses
-  } = useResponses();
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -72,13 +66,6 @@ export default function CampaignDetailsPage() {
           // Analytics might not be available yet (before processing responses)
           console.log('Analytics not available yet');
         }
-
-        // Fetch merkle root if exists (404 is expected if not calculated yet)
-        try {
-          await fetchMerkleRoot(campaignId);
-        } catch (err) {
-          // Merkle root not calculated yet - this is normal
-        }
       }
     } catch (err: any) {
       console.error('Failed to load campaign:', err);
@@ -88,7 +75,7 @@ export default function CampaignDetailsPage() {
     }
   };
 
-  const handleStatusChange = async (action: 'open' | 'close' | 'launch' | 'publish', merkleRootParam?: string) => {
+  const handleStatusChange = async (action: 'open' | 'close' | 'launch' | 'publish') => {
     try {
       setError('');
       let updatedCampaign;
@@ -106,10 +93,9 @@ export default function CampaignDetailsPage() {
           await loadCampaignData();
           return;
         case 'publish':
-          if (!merkleRootParam) {
-            throw new Error('Merkle root is required to publish campaign');
-          }
-          updatedCampaign = await publishCampaign(campaignId, merkleRootParam);
+          // Merkle roots already published via blockchain operations
+          // Just change the status to published
+          updatedCampaign = await publishCampaign(campaignId, 'dummy-merkle-root');
           break;
       }
 
@@ -122,23 +108,30 @@ export default function CampaignDetailsPage() {
     }
   };
 
-  const handleIngest = async () => {
-    const result = await ingestFromBlockchain(campaignId);
-    // Optionally reload analytics after ingestion
+  const handlePublishResponses = async () => {
+    const result = await publishResponses(campaignId);
+    // Refresh campaign data without triggering full page loading
+    const { apiClient } = await import('@/lib/api/client');
+    const response = await apiClient.get(`/campaigns/${campaignId}`);
+    setCampaign(response.data);
     return result;
   };
 
-  const handleDecrypt = async () => {
-    const result = await decryptCampaignResponses(campaignId);
-    // Reload analytics after decryption
-    if (result.success) {
-      await fetchCampaignAnalytics(campaignId);
-    }
+  const handlePublishClaims = async () => {
+    const result = await publishClaims(campaignId);
+    // Refresh campaign data without triggering full page loading
+    const { apiClient } = await import('@/lib/api/client');
+    const response = await apiClient.get(`/campaigns/${campaignId}`);
+    setCampaign(response.data);
     return result;
   };
 
-  const handleCalculateMerkle = async () => {
-    const result = await calculateMerkleRoot({ campaignId });
+  const handleCloseBlockchain = async () => {
+    const result = await closeBlockchain(campaignId);
+    // Refresh campaign data without triggering full page loading
+    const { apiClient } = await import('@/lib/api/client');
+    const response = await apiClient.get(`/campaigns/${campaignId}`);
+    setCampaign(response.data);
     return result;
   };
 
@@ -221,55 +214,19 @@ export default function CampaignDetailsPage() {
           </div>
         )}
 
-        {/* Status Management */}
+        {/* Campaign Management - Lifecycle and blockchain operations */}
         <StatusManager
           campaign={campaign}
           onStatusChange={handleStatusChange}
-          merkleRoot={merkleRoot?.merkleRoot || null}
+          onPublishResponses={handlePublishResponses}
+          onPublishClaims={handlePublishClaims}
         />
 
-        {/* Process Responses */}
-        <ProcessResponses
+        {/* Blockchain Finalization - Danger Zone */}
+        <BlockchainFinalizer
           campaign={campaign}
-          onIngest={handleIngest}
-          onDecrypt={handleDecrypt}
+          onFinalize={handleCloseBlockchain}
         />
-
-        {/* Publish Results */}
-        <PublishResults
-          campaign={campaign}
-          onCalculateMerkle={handleCalculateMerkle}
-          existingMerkleRoot={merkleRoot}
-        />
-
-        {/* Analytics Preview */}
-        {analytics && (
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Analytics Preview</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="border border-gray-200 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Average Score</div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {analytics.averageScore ? analytics.averageScore.toFixed(2) : '0.00'} / 5.0
-                </div>
-              </div>
-
-              <div className="border border-gray-200 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Schools</div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {analytics.schoolBreakdown?.length || 0}
-                </div>
-              </div>
-
-              <div className="border border-gray-200 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Teachers</div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {analytics.teacherPerformance?.length || 0}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

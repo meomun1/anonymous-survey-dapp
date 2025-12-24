@@ -58,7 +58,7 @@ export const CampaignCard = ({ campaign, semesterId, onStatusChange, showActions
           >
             View Details
           </Link>
-          {onStatusChange && actions.map(({ action, label, color }) => (
+          {/* {onStatusChange && actions.map(({ action, label, color }) => (
             <button
               key={action}
               onClick={() => onStatusChange(campaign.id, action)}
@@ -66,7 +66,7 @@ export const CampaignCard = ({ campaign, semesterId, onStatusChange, showActions
             >
               {label}
             </button>
-          ))}
+          ))} */}
         </div>
       )}
     </div>

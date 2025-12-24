@@ -13,6 +13,17 @@ export interface Campaign {
   blockchainAddress?: string;
   createdAt: string;
   updatedAt: string;
+
+  // NEW: Merkle root fields
+  responsesMerkleRoot?: string;
+  totalResponses?: number;
+  responsesPublishedAt?: string;
+  claimedReceiptsRoot?: string;
+  totalClaimed?: number;
+  claimsUpdatedAt?: string;
+  blockchainClosed?: boolean;
+  blockchainClosedAt?: string;
+  blockchainSignature?: string;
 }
 
 export interface CreateCampaignData {
@@ -67,4 +78,14 @@ export const campaignsApi = {
   
   publish: (id: string, merkleRoot: string): Promise<AxiosResponse<Campaign>> =>
     apiClient.post(`/campaigns/${id}/publish`, { merkleRoot }),
+
+  // NEW: Blockchain integration endpoints
+  publishResponses: (id: string): Promise<AxiosResponse<{ merkleRoot: string; totalResponses: number }>> =>
+    apiClient.post(`/campaigns/${id}/publish-responses`),
+
+  publishClaims: (id: string): Promise<AxiosResponse<{ merkleRoot: string; totalClaimed: number }>> =>
+    apiClient.post(`/campaigns/${id}/publish-claims`),
+
+  closeBlockchain: (id: string): Promise<AxiosResponse<{ signature: string; success: boolean }>> =>
+    apiClient.post(`/campaigns/${id}/close-blockchain`),
 };

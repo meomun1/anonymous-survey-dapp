@@ -142,6 +142,66 @@ export const useCampaigns = () => {
     }
   }, []);
 
+  const publishResponses = useCallback(async (id: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await campaignsApi.publishResponses(id);
+      // Refresh campaign to get updated merkle root
+      const campaignResponse = await campaignsApi.getById(id);
+      setCampaigns(prev => prev.map(campaign =>
+        campaign.id === id ? campaignResponse.data : campaign
+      ));
+      return response.data;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to publish responses Merkle root';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const publishClaims = useCallback(async (id: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await campaignsApi.publishClaims(id);
+      // Refresh campaign to get updated merkle root
+      const campaignResponse = await campaignsApi.getById(id);
+      setCampaigns(prev => prev.map(campaign =>
+        campaign.id === id ? campaignResponse.data : campaign
+      ));
+      return response.data;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to publish claims Merkle root';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const closeBlockchain = useCallback(async (id: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await campaignsApi.closeBlockchain(id);
+      // Refresh campaign to get updated blockchain closure status
+      const campaignResponse = await campaignsApi.getById(id);
+      setCampaigns(prev => prev.map(campaign =>
+        campaign.id === id ? campaignResponse.data : campaign
+      ));
+      return response.data;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to close campaign on blockchain';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   return {
     loading,
     error,
@@ -154,5 +214,8 @@ export const useCampaigns = () => {
     closeCampaign,
     launchCampaign,
     publishCampaign,
+    publishResponses,
+    publishClaims,
+    closeBlockchain,
   };
 };
